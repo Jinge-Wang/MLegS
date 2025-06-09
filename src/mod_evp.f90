@@ -10,6 +10,7 @@ MODULE MOD_EVP
     USE MOD_SCALAR3
     USE MOD_FFT
     USE MOD_LAYOUT
+    USE MOD_BOUSSINESQ
     USE MOD_LEGOPS
     USE MOD_MARCH, only: VISC, ENEMON
     USE MOD_DIAGNOSTICS, only: ENERGY_SPEC, ENERGY_SPEC_MODIFIED
@@ -25,9 +26,10 @@ MODULE MOD_EVP
     PUBLIC :: PC2VOR_MK, PC2VEL_MK, VPROD_MK, PROJECT_MK
     PUBLIC :: RTRAN_MK, ENERGY_MK, ENSTROPHY_MK, NONLIN_MK, PROD_MK
     PUBLIC :: INIT_LOOP
-    PUBLIC :: EIG_MATRIX, EIGENDECOMPOSE, EIGRES!, EIG_MATRIX_SERIAL
+    PUBLIC :: EIG_MATRIX, EIG_MATRIX_BSNSQ
+    PUBLIC :: EIGENDECOMPOSE, EIGRES
     PUBLIC :: EIG2VELVOR, EIG2VEL, EIG2NORMED, EIG2PT
-    PUBLIC :: SAVE_VEL, SAVE_PERTURB, SAVE_VEC, SAVE_PSICHI
+    PUBLIC :: SAVE_VEL, SAVE_PERTURB, SAVE_PERTURB_BSNSQ, SAVE_VEC, SAVE_PSICHI
     PUBLIC :: SAVE_MODE, READ_MODE
     PUBLIC :: MESHGRID
 
@@ -103,6 +105,94 @@ DEALLOCATE( XM )
 RETURN
 END SUBROUTINE MULXM_MK
 ! ======================================================================
+
+! DIVXP
+SUBROUTINE DIVXP_MK(B,A)
+!=======================================================================
+! [USAGE]: 
+! (1+X)^(-1)* (OR (R^2+ELL^2)/2R^2*) OPERATOR.
+! [UPDATES]:
+! WRITTEN BY JINGE WANG @ OCT 16 2024
+!=======================================================================
+COMPLEX(P8),DIMENSION(:),INTENT(IN):: B
+COMPLEX(P8),DIMENSION(:),INTENT(INOUT):: A
+
+INTEGER:: MM,NN,N,KK
+REAL(P8),DIMENSION(:,:),ALLOCATABLE:: XP
+
+
+IF ((M(2).EQ.0).AND.(AK(2,2).EQ.0.D0)) THEN
+    IF (MPI_RANK.EQ.0) WRITE(*,*) 'DIVXP_MK: M&AK CANNOT BOTH EQUAL 0'
+    RETURN
+ENDIF
+
+A = B
+
+ALLOCATE( XP(NRCHOP,3) )
+
+NN = NRCHOPS(2)
+XP(:NN,:) = BAND_LOGLEG_XP(NN,M(2),TFM%LOGNORM(:,2))
+CALL LUB(XP(:NN,:),2)
+CALL SOLVEB(XP(:NN,:),2,A(:NN))
+
+DEALLOCATE(XP)
+
+RETURN
+END SUBROUTINE DIVXP_MK
+!=======================================================================
+
+! MULXM2
+SUBROUTINE MULXM2_MK(A,B)
+! ======================================================================
+! [USAGE]: 
+! [(1-X)^2]* OPERATOR.
+! [UPDATES]:
+! WRITTEN BY JINGE WANG @ OCT 15 2024
+!=======================================================================
+COMPLEX(P8),DIMENSION(:),INTENT(IN):: A
+COMPLEX(P8),DIMENSION(:),INTENT(INOUT):: B
+
+COMPLEX(P8),DIMENSION(:),ALLOCATABLE:: C
+
+ALLOCATE( C(SIZE(A)) )
+
+CALL MULXM_MK(A,C)
+CALL MULXM_MK(C,B)
+
+DEALLOCATE( C )
+
+RETURN
+
+END SUBROUTINE MULXM2_MK
+! ======================================================================
+
+! MULXMDIVXP
+SUBROUTINE MULXMDIVXP_MK(A,B,SP)
+!=======================================================================
+! [USAGE]: 
+! [(1-X)/(1+X)]* (OR [L^2/R^2]*) OPERATOR.
+! [UPDATES]:
+! WRITTEN BY JINGE WANG @ OCT 16 2024
+!=======================================================================
+COMPLEX(P8),DIMENSION(:),INTENT(IN):: A
+COMPLEX(P8),DIMENSION(:),INTENT(INOUT):: B
+
+LOGICAL,OPTIONAL,INTENT(IN):: SP
+
+COMPLEX(P8),DIMENSION(:),ALLOCATABLE:: C
+
+ALLOCATE( C(SIZE(A)) )
+
+CALL MULXM_MK(A,C)
+CALL DIVXP_MK(C,B)
+
+IF(PRESENT(SP) .AND. SP .EQ. .TRUE.) B = B / ELL2
+
+DEALLOCATE( C )
+
+RETURN
+END SUBROUTINE MULXMDIVXP_MK
+!=======================================================================
 
 ! DESLQH
 SUBROUTINE DELSQH_MK(A,B)
@@ -676,6 +766,8 @@ ENDIF
 RETURN
 END SUBROUTINE RTRAN_MK
 ! ======================================================================
+
+! NONLIN
 SUBROUTINE NONLIN_MK(MREAD,AKREAD,RUR_0,RUP_0,UZ_0,ROR_0,ROP_0,OZ_0,RUR,RUP,UZ,ROR,ROP,OZ,VEC_R,comm_grp)
 ! ======================================================================
 ! note: ROR, ROP, OZ HAVE BEEN MODIFIED!
@@ -713,7 +805,7 @@ DO NN=1,NR
     D3=AIMAG (OZ (NN))
     ROR(NN)=CMPLX(A2*B3-A3*B2+C3*D2-C2*D3,B3*C2-B2*C3+A2*D3-A3*D2,P8)
     ROP(NN)=CMPLX(A3*B1-A1*B3+C1*D3-C3*D1,B1*C3-B3*C1+A3*D1-A1*D3,P8)
-        OZ(NN)=CMPLX(A1*B2-A2*B1+C2*D1-C1*D2,B2*C1-B1*C2+A1*D2-A2*D1,P8)&
+     OZ(NN)=CMPLX(A1*B2-A2*B1+C2*D1-C1*D2,B2*C1-B1*C2+A1*D2-A2*D1,P8)&
                 /TFM%R(NN)**2.D0
 
     ! W_BAR X U'
@@ -731,7 +823,7 @@ DO NN=1,NR
     D3=AIMAG (UZ (NN))
     ROR(NN)=ROR(NN)-CMPLX(A2*B3-A3*B2+C3*D2-C2*D3,B3*C2-B2*C3+A2*D3-A3*D2,P8)
     ROP(NN)=ROP(NN)-CMPLX(A3*B1-A1*B3+C1*D3-C3*D1,B1*C3-B3*C1+A3*D1-A1*D3,P8)
-        OZ(NN)= OZ(NN)-(CMPLX(A1*B2-A2*B1+C2*D1-C1*D2,B2*C1-B1*C2+A1*D2-A2*D1,P8)&
+     OZ(NN)= OZ(NN)-(CMPLX(A1*B2-A2*B1+C2*D1-C1*D2,B2*C1-B1*C2+A1*D2-A2*D1,P8)&
                 /TFM%R(NN)**2.D0)
     ! ROR(NN)=ROR(NN) - (ROP_0(NN)* UZ(NN)- OZ_0(NN)*RUP(NN))
     ! ROP(NN)=ROP(NN) - ( OZ_0(NN)*RUR(NN)-ROR_0(NN)* UZ(NN))
@@ -780,17 +872,274 @@ ENDIF
 END SUBROUTINE NONLIN_MK
 ! ======================================================================
 
+! DIRDIV
+SUBROUTINE DIRDIV0_MK(NSIZE,BU,BD)
+!=======================================================================
+! [USAGE]: 
+! CALCULATE (U0.GRAD)B WHERE U0 IS THE BASEFLOW WITH M = 0, K = 0
+! [UPDATES]:
+! CODED BY JINGE WANG @ OCT 10 2024
+!=======================================================================
+IMPLICIT NONE
+COMPLEX(P8),DIMENSION(NSIZE),INTENT(IN):: BU
+COMPLEX(P8),DIMENSION(NSIZE),INTENT(INOUT):: BD
+COMPLEX(P8),DIMENSION(:),ALLOCATABLE:: RDR_B,DP_B,DZ_B,D_B
+INTEGER:: NN,MV,NSIZE
+REAL(P8):: KV
+
+ALLOCATE(RDR_B(NSIZE), DP_B(NSIZE))
+! ALLOCATE(DZ_B(NSIZE))
+
+NN=NRCHOPS(2)
+MV=M(2)
+KV=AK(2,2)
+
+! FFF SPACE
+CALL CHOPSET(1)
+CALL XXDX_MK(BU,RDR_B)
+CALL CHOPSET(-1)
+DP_B(:NN) = BU(:NN)
+! DP_B(:NN) = IU*MV*BU(:NN)
+! DZ_B(:NN) = IU*KV*BU(:NN)
+
+! GOTO PFF SPACE
+CALL RTRAN_MK(RDR_B, 1)
+CALL RTRAN_MK( DP_B, 1)
+! CALL RTRAN_MK( DZ_B, 1)
+
+! PFF SPACE
+ALLOCATE(DZ_B(NR),D_B(NR))
+DZ_B(:NR) = DP_B(:NR)*IU*KV
+DP_B(:NR) = DP_B(:NR)*IU*MV
+
+! (U0.GRAD)B = (UR_0 * DR_B) + (UP_0 * DP_B)/R + (UZ_0 * DZ_B)
+!            = (RUR_0 * RDR_B) / R^2 + (RUP_0 * DP_B) / R^2 + (UZ_0 * DZ_B)
+! NOTE: RUR_0, RUP_0, AND UZ_0 ARE ALL REAL FUNCTIONS (M_0 = 0, K_0 = 0)
+
+!$OMP PARALLEL DO DEFAULT(SHARED)
+DO NN=1,NR
+
+    D_B(NN) = ( RUR0(NN)*RDR_B(NN) + RUP0(NN)*DP_B(NN) )/TFM%R(NN)**2.D0
+    D_B(NN) = D_B(NN) + UZ0(NN)*DZ_B(NN)
+
+ENDDO
+!$OMP END PARALLEL DO
+
+! BACK TO FFF SPACE
+CALL RTRAN_MK(D_B, -1)
+
+NN=NRCHOPS(2)
+BD = 0.D0
+BD(:NN) = D_B(:NN)
+
+DEALLOCATE(RDR_B,DP_B,DZ_B,D_B)
+
+END SUBROUTINE DIRDIV0_MK
+! ======================================================================
+
+! NONLINEAR TERMS OF BOUSSINESQ
+SUBROUTINE BSNSQ_NONLIN_MK(NSIZE,PSIU,CHIU,PSID,DEL2CHID,BU,BD)
+!=======================================================================
+! [USAGE]: 
+! CALCULATE THE TERM:
+! U: U_0 X W + U X W_0
+! B: -(U_0.GRAD)B + U_z * N^2
+! [UPDATES]:
+! CODED BY JINGE WANG @ OCT 10 2024
+!=======================================================================
+IMPLICIT NONE
+COMPLEX(P8),DIMENSION(NSIZE),INTENT(IN):: PSIU,CHIU
+COMPLEX(P8),DIMENSION(NSIZE),INTENT(INOUT):: PSID,DEL2CHID
+COMPLEX(P8),DIMENSION(NSIZE),OPTIONAL:: BU,BD
+
+! COMPLEX(P8),DIMENSION(NSIZE):: PSI1,CHI1,PSI2,CHI2
+COMPLEX(P8),DIMENSION(:),ALLOCATABLE:: RURU,RUPU,UZU,RORU,ROPU,OZU
+
+INTEGER:: NN,MV,NSIZE
+REAL(P8):: KV,OMEGA
+
+ALLOCATE(RURU(NSIZE), RUPU(NSIZE), UZU(NSIZE))
+ALLOCATE(RORU(NSIZE), ROPU(NSIZE), OZU(NSIZE))
+
+! OBTAIN U AND W
+CALL CHOPSET(3)
+CALL PC2VEL_MK(PSIU, CHIU, RURU, RUPU, UZU)
+CALL PC2VOR_MK(PSIU, CHIU, RORU, ROPU, OZU)
+CALL CHOPSET(-3)
+
+! ALL TERMS IN B
+! WHEN BU != 0
+IF (PRESENT(BU)) THEN
+
+    ! OBTAIN (U_0.GRAD)B
+    CALL DIRDIV0_MK(NSIZE,BU,BD)
+    
+    ! NONLINEAR TERM: -(U_0.GRAD)B
+    ! LINEAR TERM: U_z * BV_0^2
+    BD = -BD + UZU * BSNSQ%BV0**2
+
+! WHEN BU = 0
+ELSEIF (PRESENT(BD)) THEN
+
+    BD = UZU * BSNSQ%BV0**2
+
+ENDIF
+
+! CALL CHOPSET(3)
+
+! NONLINEAR TERM: W0 X U
+CALL RTRAN_MK(RURU, 1)
+CALL RTRAN_MK(RUPU, 1)
+CALL RTRAN_MK(UZU, 1)
+CALL VPROD_MK(ROR0, ROP0, OZ0, RURU, RUPU, UZU)
+! CALL PROJECT_MK(RURU, RUPU, UZU, PSI1, CHI1)
+
+! NONLINEAR TERM: U0 X W
+CALL RTRAN_MK(RORU, 1)
+CALL RTRAN_MK(ROPU, 1)
+CALL RTRAN_MK(OZU, 1)
+CALL VPROD_MK(RUR0, RUP0, UZ0, RORU, ROPU, OZU)
+! CALL PROJECT_MK(RORU, ROPU, OZU, PSI2, CHI2)
+
+! PROJECTION INTO PT
+CALL PROJECT_MK(RORU-RURU, ROPU-RUPU, OZU-UZU, PSID, DEL2CHID )
+
+! PSID = PSI2 - PSI1
+! DEL2CHID = CHI2 - CHI1
+
+! CALL CHOPSET(-3)
+
+
+DEALLOCATE(RURU,RUPU,UZU,RORU,ROPU,OZU)
+
+END SUBROUTINE BSNSQ_NONLIN_MK
+! ======================================================================
+
+! LINEAR TERMS OF BOUSSINESQ
+SUBROUTINE BSNSQ_LINEAR_MK(NSIZE,PSIU,CHIU,BU,PSID,DEL2CHID)
+!=======================================================================
+! [USAGE]: 
+! CALCUALTE THE TERM:
+! (-2*OMEGA)(e_z X U) - B e_z
+! [UPDATES]:
+! CODED BY JINGE WANG @ OCT 10 2024
+!=======================================================================
+IMPLICIT NONE
+COMPLEX(P8),DIMENSION(NSIZE),INTENT(IN):: PSIU,CHIU,BU
+COMPLEX(P8),DIMENSION(NSIZE),INTENT(INOUT):: PSID,DEL2CHID
+INTEGER:: NN,MV,NSIZE
+REAL(P8):: KV,OMEGA
+
+COMPLEX(P8),DIMENSION(:),ALLOCATABLE:: RURU,RUPU,UZU
+
+! ================================ OLD =================================
+
+! ALLOCATE(RURU(NSIZE), RUPU(NSIZE), UZU(NSIZE))
+
+! UZU = -BU
+
+! ! IF FRAME IS NOT ROTATING
+! IF (BSNSQ%OMEGA.EQ.0.D0) THEN
+!   RURU = 0.D0
+!   RUPU = 0.D0
+
+! ! IF FRAME IS ROTATING
+! ELSE
+
+!     ! Z X U = {(drPSIU - dtheta dz CHIU/R), (dthetaPSIU/R + drdzCHIU), 0 }
+!     OMEGA = BSNSQ%OMEGA
+!     CALL CHOPSET(1)
+!     CALL XXDX_MK(PSIU,RURU) ! RUR = R*D/DR(PSIU)
+!     CALL XXDX_MK(CHIU,RUPU) ! RUP = R*D/DR(CHIU)
+!     CALL CHOPSET(-1)
+
+!     NN=NRCHOPS(2)
+!     MV=M(2)
+!     KV=AK(2,2)
+
+!     ! RUR = -2*OMEGA( R*D/DR(PSIU) + (M*K)*CHIU )
+!     RURU(:NN)= ( RURU(:NN) + MV*KV*CHIU(:NN) )*(-2*OMEGA)
+
+!     ! RUP = -2*OMEGA( R*D/DR(CHIU)*I*K + (I*M)*PSIU )
+!     RUPU(:NN)= ( IU*KV*RUPU(:NN) + IU*MV*PSIU(:NN) )*(-2*OMEGA)
+
+! ENDIF
+
+! ================================ OLD =================================
+
+ALLOCATE(UZU(NSIZE)); UZU = 0.D0
+OMEGA = BSNSQ%OMEGA
+
+IF (OMEGA.EQ.0.D0) THEN
+    ALLOCATE(RURU(NDIMR), RUPU(NDIMR))
+    RURU = 0.D0; RUPU = 0.D0
+    GOTO 1080
+ENDIF
+
+! OBTAIN U
+ALLOCATE(RURU(NSIZE), RUPU(NSIZE))
+CALL CHOPSET(3)
+CALL PC2VEL_MK(PSIU, CHIU, RURU, RUPU, UZU)
+CALL CHOPSET(-3)
+CALL RTRAN_MK(RURU, 1) ! GO TO PFF
+CALL RTRAN_MK(RUPU, 1) ! GO TO PFF
+
+1080 CONTINUE
+! UZU = -B
+UZU = -BU
+CALL RTRAN_MK( UZU, 1) ! GO TO PFF
+
+CALL PROJECT_MK(-RUPU*(-2*OMEGA), RURU*(-2*OMEGA), UZU, PSID, DEL2CHID )
+
+DEALLOCATE(RURU,RUPU,UZU)
+
+RETURN
+END SUBROUTINE BSNSQ_LINEAR_MK
+!=======================================================================
+
+! ALL TERMS OF BOUSSINESQ
+SUBROUTINE BSNSQ_MK(NSIZE,PSIU,CHIU,BU,PSID,DEL2CHID,BD)
+! ======================================================================
+! [USAGE]: 
+! CALCUALTE ALL TERMS OF BOUSSINESQ EVP:
+! U: U_0 X W + U X W_0 + (-2*OMEGA)(e_z X U) - B e_z
+! B: -(U_0.GRAD)B + U_z * N^2
+! [UPDATES]:
+! CODED BY JINGE WANG @ OCT 10 2024
+!=======================================================================
+IMPLICIT NONE
+INTEGER:: NSIZE
+COMPLEX(P8),DIMENSION(NSIZE),INTENT(IN):: PSIU,CHIU,BU
+COMPLEX(P8),DIMENSION(NSIZE),INTENT(INOUT):: PSID,DEL2CHID,BD
+
+COMPLEX(P8),DIMENSION(NSIZE):: PSI1,DEL2CHI1
+COMPLEX(P8),DIMENSION(NSIZE):: PSI2,DEL2CHI2
+
+! U: U_0 X W + U X W_0
+! B: -(U_0.GRAD)B + U_z * N^2
+CALL BSNSQ_NONLIN_MK(NSIZE,PSIU,CHIU,PSI1,DEL2CHI1,BU=BU,BD=BD)
+
+! U: (-2*OMEGA)(e_z X U) - B e_z
+CALL BSNSQ_LINEAR_MK(NSIZE,PSIU,CHIU,BU,PSI2,DEL2CHI2)
+
+PSID = PSI1 + PSI2
+DEL2CHID = DEL2CHI1 + DEL2CHI2
+
+END SUBROUTINE BSNSQ_MK
+! ======================================================================
+
 ! INIT
-SUBROUTINE INIT_LOOP(RUR_0,RUP_0,UZ_0,ROR_0,ROP_0,OZ_0)
+SUBROUTINE INIT_LOOP(RUR_0,RUP_0,UZ_0,ROR_0,ROP_0,OZ_0,PSI_0,CHI_0)
 ! ======================================================================
 IMPLICIT NONE
 REAL(P8),DIMENSION(:):: RUR_0,RUP_0,UZ_0,ROR_0,ROP_0,OZ_0
+COMPLEX(P8),DIMENSION(:),OPTIONAL:: PSI_0,CHI_0
 TYPE(SCALAR):: A, B, C   ! EXTRA SCALAR-TYPE VARIABLES
 TYPE(SCALAR):: D, E, F   ! EXTRA SCALAR-TYPE VARIABLES
 INTEGER     :: I, J, K   ! EXTRA INTEGER VARIABLES (FOR ITER.)
 REAL(P8)    :: X, Y, Z   ! EXTRA REAL(P8) VARIABLES
-REAL(P8):: EM(NTCHOP), EK(NXCHOP), EMK(NTCHOP,NXCHOP), EMK2(NTCHOP,NXCHOPDIM), E00
-COMPLEX(P8),DIMENSION(:),ALLOCATABLE:: PSICHI
+! REAL(P8):: EM(NTCHOP), EK(NXCHOP), EMK(NTCHOP,NXCHOP), EMK2(NTCHOP,NXCHOPDIM), E00
+! COMPLEX(P8),DIMENSION(:),ALLOCATABLE:: PSICHI
 
 ! DEALLOCATE(NRCHOPS)
 ! DEALLOCATE(NTCHOPS)
@@ -872,6 +1221,8 @@ ENDIF
 CALL ALLOCATE(B)
 CALL IDELSQH(A,B)
 
+IF (PRESENT(PSI_0)) PSI_0(:NRCHOPDIM) = B%E(:NRCHOPDIM,1,1)
+
 CALL DEALLOCATE(A)
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -943,6 +1294,8 @@ ENDIF
 ! IN THE INVERSE DEL SQ.
 CALL ALLOCATE(C)
 CALL IDELSQH(A,C)
+
+IF (PRESENT(CHI_0)) CHI_0(:NRCHOPDIM) = C%E(:NRCHOPDIM,1,1)
 
 CALL DEALLOCATE(A)
 
@@ -1136,217 +1489,6 @@ RETURN
 END SUBROUTINE EIGENDECOMPOSE
 ! ======================================================================
 
-! SUBROUTINE EIG_MATRIX_SERIAL(MREAD, AKREAD, H, EIG_VAL, EIG_VEC_R, EIG_VEC_L, comm_grp, switch)
-! ! ======================================================================
-! IMPLICIT NONE
-! INTEGER, INTENT(IN)    :: MREAD, comm_grp
-! REAL(P8), INTENT(IN)   :: AKREAD
-! COMPLEX(P8), DIMENSION(:, :), ALLOCATABLE, INTENT(INOUT)            :: H
-! COMPLEX(P8), DIMENSION(:), ALLOCATABLE, INTENT(INOUT), OPTIONAL     :: EIG_VAL
-! COMPLEX(P8), DIMENSION(:, :), ALLOCATABLE, INTENT(INOUT), OPTIONAL  :: EIG_VEC_R, EIG_VEC_L
-! LOGICAL, OPTIONAL:: switch
-
-! LOGICAL     :: flip_switch =.FALSE.
-! INTEGER     :: NR_MK, I, M_ACTUAL, IS
-! REAL(P8)    :: REI, AK_ACTUAL
-! INTEGER     :: MPI_NR_SIZE, MPI_NR_INDEX
-! ! REAL(P8),DIMENSION(:),ALLOCATABLE:: RUR0,RUP0,UZ0,ROR0,ROP0,OZ0
-! COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: RURU, RUPU, UZU, RORU, ROPU, OZU
-! COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: PSIU, CHIU, PSI1, CHI1, PSI2, CHI2, PSI3, CHI3
-! CHARACTER(len=6) :: K_WRITTEN
-! ! INIT
-! NTH = 2
-! NX = 4
-! NTCHOP = 2 ! M = 0, M = MREAD
-! NXCHOP = 2 ! K = 0, K = AKREAD
-! IF (.NOT. ALLOCATED(RUR0)) THEN
-!     ZLEN = 1.D0; CALL LEGINIT(comm_grp)
-!     ALLOCATE (RUR0(NR), RUP0(NR), UZ0(NR), ROR0(NR), ROP0(NR), OZ0(NR))
-!     CALL INIT_LOOP(RUR0, RUP0, UZ0, ROR0, ROP0, OZ0) ! ALL IN PFF space
-! END IF    
-
-! ! IF MREAD IS NEGATIVE, CALCULATE ITS C.C MODE
-! IF (MREAD.LT.0) THEN
-!     flip_switch = .TRUE.
-!     M_ACTUAL = -MREAD
-!     AK_ACTUAL = -AKREAD
-! ELSE
-!     flip_switch = .FALSE.
-!     M_ACTUAL = MREAD
-!     AK_ACTUAL = AKREAD
-! ENDIF
-
-! ZLEN = 2*PI/AK_ACTUAL
-! CALL LEGINIT(comm_grp, M_ACTUAL)
-! ! write(*,*) 'M,AK:',M(2),AK(2,2),ZLEN
-
-! ! SPLIT NRCHOPDIM
-! NR_MK = NRCHOPS(2)
-! IF (ALLOCATED(H) .AND. (SIZE(H, 1) .NE. NR_MK)) THEN
-!     DEALLOCATE (H)
-!     ALLOCATE (H(2*NR_MK, 2*NR_MK))
-! ELSEIF (.NOT. (ALLOCATED(H))) THEN
-!     ALLOCATE (H(2*NR_MK, 2*NR_MK))
-! END IF
-! H = CMPLX(0.D0, 0.D0, P8)
-
-! ! MAIN JOB
-! ALLOCATE (PSIU(NRCHOPDIM), CHIU(NRCHOPDIM))
-! ALLOCATE (PSI1(NRCHOPDIM), CHI1(NRCHOPDIM))
-! ALLOCATE (PSI2(NRCHOPDIM), CHI2(NRCHOPDIM))
-! ALLOCATE (PSI3(NRCHOPDIM), CHI3(NRCHOPDIM))
-! ALLOCATE (RURU(NRCHOPDIM), RUPU(NRCHOPDIM), UZU(NRCHOPDIM))
-! ALLOCATE (RORU(NRCHOPDIM), ROPU(NRCHOPDIM), OZU(NRCHOPDIM))
-
-! DO I = 1, NR_MK
-! ! ================================ PSI =================================
-!     PSIU = 0.D0
-!     CHIU = 0.D0
-!     PSIU(I) = 1.D0
-
-! ! VISCOSITY/HYPERV
-!     CALL CHOPSET(2)
-!     IF (VISC%SW .EQ. 1) THEN
-!         CALL DEL2_MK(PSIU, PSI3)
-!         PSI3 = PSI3*VISC%NU
-!     ELSE IF (VISC%SW .EQ. 2) THEN
-!         CALL CHOPSET(-2 + VISC%P)
-!         CALL HELMP_MK(VISC%P, PSIU, PSI3, 0.D0)
-!         IF (MOD(VISC%P/2, 2) .EQ. 0) PSI3 = -PSI3
-!         PSI3 = PSI3*VISC%NUP
-!         CALL CHOPSET(2 - VISC%P)
-!     ELSE
-!         PSI3 = 0.D0
-!     END IF
-!     CHI3 = 0.D0
-!     CALL CHOPSET(-2)
-
-!     CALL CHOPSET(3)
-! ! NONLINEAR TERM: W0 X U'
-!     CALL PC2VEL_MK(PSIU, CHIU, RURU, RUPU, UZU)
-!     CALL RTRAN_MK(RURU, 1)
-!     CALL RTRAN_MK(RUPU, 1)
-!     CALL RTRAN_MK(UZU, 1)
-!     CALL VPROD_MK(ROR0, ROP0, OZ0, RURU, RUPU, UZU)
-!     CALL PROJECT_MK(RURU, RUPU, UZU, PSI1, CHI1)
-
-! ! NONLINEAR TERM: W' X U0
-!     CALL PC2VOR_MK(PSIU, CHIU, RORU, ROPU, OZU)
-!     CALL RTRAN_MK(RORU, 1)
-!     CALL RTRAN_MK(ROPU, 1)
-!     CALL RTRAN_MK(OZU, 1)
-!     CALL VPROD_MK(RUR0, RUP0, UZ0, RORU, ROPU, OZU)
-!     CALL PROJECT_MK(RORU, ROPU, OZU, PSI2, CHI2)
-!     CALL CHOPSET(-3)
-! ! IF (I.EQ.2) THEN
-! !     CALL XXDX_MK(PSIU,RURU)
-! !     CALL MCAT(ROP0)
-! ! ENDIF
-
-!     PSI1 = -PSI1 + PSI2 + PSI3
-!     CHI1 = -CHI1 + CHI2 + CHI3
-!     PSI1(NRCHOPS(2) + 1:) = 0.D0
-!     CHI1(NRCHOPS(2) + 1:) = 0.D0
-
-!     H(:NR_MK, I) = PSI1(:NR_MK)
-!     H(NR_MK + 1:, I) = CHI1(:NR_MK)
-
-! ! ================================ CHI =================================
-!     PSIU = 0.D0
-!     CHIU = 0.D0
-!     CHIU(I) = 1.D0
-
-!     CALL IDEL2_MK(CHIU, CHI1)
-!     CHIU = CHI1
-!     CHI1 = 0.D0
-
-!     IF (VISC%SW .NE. 0) THEN
-!         CHI3 = PSI3
-!     ELSE
-!         CHI3 = 0.D0
-!     END IF
-!     PSI3 = 0.D0
-
-!     CALL CHOPSET(3)
-! ! NONLINEAR TERM: W0 X U'
-!     CALL PC2VEL_MK(PSIU, CHIU, RURU, RUPU, UZU)
-!     CALL RTRAN_MK(RURU, 1)
-!     CALL RTRAN_MK(RUPU, 1)
-!     CALL RTRAN_MK(UZU, 1)
-!     CALL VPROD_MK(ROR0, ROP0, OZ0, RURU, RUPU, UZU)
-!     CALL PROJECT_MK(RURU, RUPU, UZU, PSI1, CHI1)
-
-! ! NONLINEAR TERM: W' X U0
-!     CALL PC2VOR_MK(PSIU, CHIU, RORU, ROPU, OZU)
-!     CALL RTRAN_MK(RORU, 1)
-!     CALL RTRAN_MK(ROPU, 1)
-!     CALL RTRAN_MK(OZU, 1)
-!     CALL VPROD_MK(RUR0, RUP0, UZ0, RORU, ROPU, OZU)
-!     CALL PROJECT_MK(RORU, ROPU, OZU, PSI2, CHI2)
-!     CALL CHOPSET(-3)
-
-!     PSI1 = -PSI1 + PSI2 + PSI3
-!     CHI1 = -CHI1 + CHI2 + CHI3
-!     PSI1(NRCHOPS(2) + 1:) = 0.D0
-!     CHI1(NRCHOPS(2) + 1:) = 0.D0
-
-!     H(:NR_MK, I + NR_MK) = PSI1(:NR_MK)
-!     H(NR_MK + 1:, I + NR_MK) = CHI1(:NR_MK)
-! END DO
-! ! DEALLOCATE( RUR0,RUP0,UZ0,ROR0,ROP0,OZ0 )
-! DEALLOCATE (RURU, RUPU, UZU, RORU, ROPU, OZU)
-! DEALLOCATE (PSIU, CHIU, PSI1, CHI1, PSI2, CHI2, PSI3, CHI3)
-
-! ! OUTPUT:
-! !WRITE OUT THE 3D MATRIX IN THE SCALAR USING UNFORMATTED MODE
-! IF (flip_switch) THEN
-!     H = CONJG(H)
-! ENDIF
-
-! IF (PRESENT(EIG_VAL)) THEN
-!     IF (ALLOCATED(EIG_VAL)) DEALLOCATE (EIG_VAL)
-!     ALLOCATE (EIG_VAL(2*NR_MK))
-
-!     IF (PRESENT(EIG_VEC_L)) THEN
-!         IF (ALLOCATED(EIG_VEC_R)) DEALLOCATE (EIG_VEC_R)
-!         IF (ALLOCATED(EIG_VEC_L)) DEALLOCATE (EIG_VEC_L)
-!         ALLOCATE (EIG_VEC_R(2*NR_MK, 2*NR_MK), EIG_VEC_L(2*NR_MK, 2*NR_MK))
-!         CALL EIGENDECOMPOSE(H, EIG_VAL, ER=EIG_VEC_R, EL=EIG_VEC_L)
-!     ELSEIF (PRESENT(EIG_VEC_R)) THEN
-!         IF (ALLOCATED(EIG_VEC_R)) DEALLOCATE (EIG_VEC_R)
-!         ALLOCATE (EIG_VEC_R(2*NR_MK, 2*NR_MK))
-!         CALL EIGENDECOMPOSE(H, EIG_VAL, ER=EIG_VEC_R)
-!     ELSE
-!         CALL EIGENDECOMPOSE(H, EIG_VAL)
-!     END IF
-! END IF
-
-! IF (PRESENT(switch)) THEN
-!     WRITE(K_WRITTEN,'(F06.2)') AKREAD
-!     open (10, FILE='./converg/eigM_MK_'//ITOA3(MREAD)//'_'//K_WRITTEN &
-!             //'.output', STATUS='unknown', ACTION='WRITE', IOSTAT=IS)
-!     if (IS .ne. 0) then
-!         print *, 'ERROR: EIG_MATRIX -- Could not creat new file'
-!         RETURN
-!     end if
-!     DO I = 1, 2*NR_MK
-!         WRITE (10, *) H(I, 1:20)
-!     END DO
-!     close (10)
-!     write (*, *) 'EVP MAT: max element = ', maxval(abs(H))
-!     write (*, *) 'EVP MAT: maxUR = ', maxval(abs(RUR0(1:NR)/TFM%R))
-!     write (*, *) 'EVP MAT: maxUP = ', maxval(abs(RUP0(1:NR)/TFM%R))
-!     write (*, *) 'EVP MAT: maxUZ = ', maxval(abs( UZ0(1:NR)))
-!     write (*, *) 'EVP MAT: maxOR = ', maxval(abs(ROR0(1:NR)/TFM%R))
-!     write (*, *) 'EVP MAT: maxOP = ', maxval(abs(ROP0(1:NR)/TFM%R))
-!     write (*, *) 'EVP MAT: maxOZ = ', maxval(abs( OZ0(1:NR)))
-! END IF
-
-! RETURN
-
-! END SUBROUTINE EIG_MATRIX_SERIAL
-! ! ======================================================================
-
 SUBROUTINE EIG_MATRIX(MREAD, AKREAD, H, EIG_VAL, EIG_VEC_R, EIG_VEC_L, comm_grp, print_switch, serial_switch)
 ! ======================================================================
 IMPLICIT NONE
@@ -1362,8 +1504,7 @@ INTEGER     :: NR_MK, I, M_ACTUAL, IS
 REAL(P8)    :: REI, AK_ACTUAL
 INTEGER     :: MPI_NR_SIZE, MPI_NR_INDEX
 ! REAL(P8),DIMENSION(:),ALLOCATABLE:: RUR0,RUP0,UZ0,ROR0,ROP0,OZ0
-COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: RURU, RUPU, UZU, RORU, ROPU, OZU
-COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: PSIU, CHIU, PSI1, CHI1, PSI2, CHI2, PSI3, CHI3
+COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: PSIU, CHIU, PSI1, CHI1, PSI3, CHI3
 CHARACTER(len=6) :: K_WRITTEN
 
 ! INIT
@@ -1402,7 +1543,7 @@ CALL LEGINIT(comm_grp, M_ACTUAL)
 
 ! SPLIT NRCHOPDIM
 NR_MK = NRCHOPS(2)
-IF (ALLOCATED(H) .AND. (SIZE(H, 1) .NE. NR_MK)) THEN
+IF (ALLOCATED(H) .AND. (SIZE(H, 1) .NE. 2*NR_MK)) THEN
     DEALLOCATE (H)
     ALLOCATE (H(2*NR_MK, 2*NR_MK))
 ELSEIF (.NOT. (ALLOCATED(H))) THEN
@@ -1418,10 +1559,7 @@ ENDIF
 ! MAIN JOB
 ALLOCATE (PSIU(NRCHOPDIM), CHIU(NRCHOPDIM))
 ALLOCATE (PSI1(NRCHOPDIM), CHI1(NRCHOPDIM))
-ALLOCATE (PSI2(NRCHOPDIM), CHI2(NRCHOPDIM))
 ALLOCATE (PSI3(NRCHOPDIM), CHI3(NRCHOPDIM))
-ALLOCATE (RURU(NRCHOPDIM), RUPU(NRCHOPDIM), UZU(NRCHOPDIM))
-ALLOCATE (RORU(NRCHOPDIM), ROPU(NRCHOPDIM), OZU(NRCHOPDIM))
 
 DO I = MPI_NR_INDEX + 1, MPI_NR_INDEX + MPI_NR_SIZE
 ! ================================ PSI =================================
@@ -1429,7 +1567,7 @@ DO I = MPI_NR_INDEX + 1, MPI_NR_INDEX + MPI_NR_SIZE
     CHIU = 0.D0
     PSIU(I) = 1.D0
 
-! VISCOSITY/HYPERV
+    ! VISCOSITY/HYPERV
     CALL CHOPSET(2)
     IF (VISC%SW .EQ. 1) THEN
         CALL DEL2_MK(PSIU, PSI3)
@@ -1446,30 +1584,11 @@ DO I = MPI_NR_INDEX + 1, MPI_NR_INDEX + MPI_NR_SIZE
     CHI3 = 0.D0
     CALL CHOPSET(-2)
 
-    CALL CHOPSET(3)
-! NONLINEAR TERM: W0 X U'
-    CALL PC2VEL_MK(PSIU, CHIU, RURU, RUPU, UZU)
-    CALL RTRAN_MK(RURU, 1)
-    CALL RTRAN_MK(RUPU, 1)
-    CALL RTRAN_MK(UZU, 1)
-    CALL VPROD_MK(ROR0, ROP0, OZ0, RURU, RUPU, UZU)
-    CALL PROJECT_MK(RURU, RUPU, UZU, PSI1, CHI1)
+    ! NONLINEAR TERM
+    CALL BSNSQ_NONLIN_MK(NRCHOPDIM,PSIU,CHIU,PSI1,CHI1)
 
-! NONLINEAR TERM: W' X U0
-    CALL PC2VOR_MK(PSIU, CHIU, RORU, ROPU, OZU)
-    CALL RTRAN_MK(RORU, 1)
-    CALL RTRAN_MK(ROPU, 1)
-    CALL RTRAN_MK(OZU, 1)
-    CALL VPROD_MK(RUR0, RUP0, UZ0, RORU, ROPU, OZU)
-    CALL PROJECT_MK(RORU, ROPU, OZU, PSI2, CHI2)
-    CALL CHOPSET(-3)
-! IF (I.EQ.2) THEN
-!     CALL XXDX_MK(PSIU,RURU)
-!     CALL MCAT(ROP0)
-! ENDIF
-
-    PSI1 = -PSI1 + PSI2 + PSI3
-    CHI1 = -CHI1 + CHI2 + CHI3
+    PSI1 = PSI1 + PSI3
+    CHI1 = CHI1 + CHI3
     PSI1(NRCHOPS(2) + 1:) = 0.D0
     CHI1(NRCHOPS(2) + 1:) = 0.D0
 
@@ -1492,35 +1611,17 @@ DO I = MPI_NR_INDEX + 1, MPI_NR_INDEX + MPI_NR_SIZE
     END IF
     PSI3 = 0.D0
 
-    CALL CHOPSET(3)
-! NONLINEAR TERM: W0 X U'
-    CALL PC2VEL_MK(PSIU, CHIU, RURU, RUPU, UZU)
-    CALL RTRAN_MK(RURU, 1)
-    CALL RTRAN_MK(RUPU, 1)
-    CALL RTRAN_MK(UZU, 1)
-    CALL VPROD_MK(ROR0, ROP0, OZ0, RURU, RUPU, UZU)
-    CALL PROJECT_MK(RURU, RUPU, UZU, PSI1, CHI1)
+    CALL BSNSQ_NONLIN_MK(NRCHOPDIM,PSIU,CHIU,PSI1,CHI1)
 
-! NONLINEAR TERM: W' X U0
-    CALL PC2VOR_MK(PSIU, CHIU, RORU, ROPU, OZU)
-    CALL RTRAN_MK(RORU, 1)
-    CALL RTRAN_MK(ROPU, 1)
-    CALL RTRAN_MK(OZU, 1)
-    CALL VPROD_MK(RUR0, RUP0, UZ0, RORU, ROPU, OZU)
-    CALL PROJECT_MK(RORU, ROPU, OZU, PSI2, CHI2)
-    CALL CHOPSET(-3)
-
-    PSI1 = -PSI1 + PSI2 + PSI3
-    CHI1 = -CHI1 + CHI2 + CHI3
+    PSI1 = PSI1 + PSI3
+    CHI1 = CHI1 + CHI3
     PSI1(NRCHOPS(2) + 1:) = 0.D0
     CHI1(NRCHOPS(2) + 1:) = 0.D0
 
     H(:NR_MK, I + NR_MK) = PSI1(:NR_MK)
     H(NR_MK + 1:, I + NR_MK) = CHI1(:NR_MK)
 END DO
-! DEALLOCATE( RUR0,RUP0,UZ0,ROR0,ROP0,OZ0 )
-DEALLOCATE (RURU, RUPU, UZU, RORU, ROPU, OZU)
-DEALLOCATE (PSIU, CHIU, PSI1, CHI1, PSI2, CHI2, PSI3, CHI3)
+DEALLOCATE (PSIU, CHIU, PSI1, CHI1, PSI3, CHI3)
 
 IF (.NOT.(isserial)) THEN
     CALL MPI_ALLREDUCE(MPI_IN_PLACE, H, SIZE(H), MPI_DOUBLE_COMPLEX, MPI_SUM, &
@@ -1579,6 +1680,244 @@ END IF
 RETURN
 
 END SUBROUTINE EIG_MATRIX
+! ======================================================================
+
+SUBROUTINE EIG_MATRIX_BSNSQ(MREAD, AKREAD, H, EIG_VAL, EIG_VEC_R, EIG_VEC_L, comm_grp, print_switch, serial_switch)
+! ======================================================================
+IMPLICIT NONE
+INTEGER, INTENT(IN)    :: MREAD, comm_grp
+REAL(P8), INTENT(IN)   :: AKREAD
+COMPLEX(P8), DIMENSION(:, :), ALLOCATABLE, INTENT(INOUT)            :: H
+COMPLEX(P8), DIMENSION(:), ALLOCATABLE, INTENT(INOUT), OPTIONAL     :: EIG_VAL
+COMPLEX(P8), DIMENSION(:, :), ALLOCATABLE, INTENT(INOUT), OPTIONAL  :: EIG_VEC_R, EIG_VEC_L
+LOGICAL, OPTIONAL:: print_switch, serial_switch
+
+LOGICAL     :: flip_switch =.FALSE., isserial
+INTEGER     :: NR_MK, I, M_ACTUAL, IS
+REAL(P8)    :: REI, AK_ACTUAL
+INTEGER     :: MPI_NR_SIZE, MPI_NR_INDEX
+! REAL(P8),DIMENSION(:),ALLOCATABLE:: RUR0,RUP0,UZ0,ROR0,ROP0,OZ0
+COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: PSIU, CHIU, BU
+COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: PSI1, CHI1, B1
+COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: PSI2, CHI2, B2
+COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: PSI3, CHI3, B3
+CHARACTER(len=6) :: K_WRITTEN
+
+! COMPUTATION SETUP
+NTH = 2; NX = 4
+NTCHOP = 2 ! M = 0, M = MREAD
+NXCHOP = 2 ! K = 0, K = AKREAD
+
+! OBTAIN THE BASEFLOW
+! PFF (REAL): RUR0, RUP0, UZ0, ROR0, ROP0, OZ0
+! FFF (CPLX): PSI0, CHI0
+IF (.NOT. ALLOCATED(RUR0)) THEN
+    ZLEN = 1.D0; CALL LEGINIT(comm_grp)
+    ALLOCATE(RUR0(NR), RUP0(NR), UZ0(NR), ROR0(NR), ROP0(NR), OZ0(NR))
+    CALL INIT_LOOP(RUR0, RUP0, UZ0, ROR0, ROP0, OZ0)
+END IF
+
+! SERIAL OR DISTRIBUTED COMPUTATION
+isserial = .FALSE.
+IF (PRESENT(serial_switch)) isserial = serial_switch
+
+! FOR M BEING NEGATIVE, CALCULATES ITS CONJUGATE EVP THEN CONJG BACK
+IF ((MPI_GLB_RANK.EQ.0).OR.(isserial)) THEN
+    ! IF MREAD IS NEGATIVE, CALCULATE ITS C.C MODE
+    IF (MREAD.LT.0) THEN
+        flip_switch = .TRUE.
+        M_ACTUAL = -MREAD
+        AK_ACTUAL = -AKREAD
+    ELSE
+        flip_switch = .FALSE.
+        M_ACTUAL = MREAD
+        AK_ACTUAL = AKREAD
+    ENDIF
+ENDIF
+IF (.NOT.(isserial)) THEN
+    CALL MPI_BCAST(M_ACTUAL, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, IERR)
+    CALL MPI_BCAST(AK_ACTUAL, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, IERR)
+ENDIF
+ZLEN = 2*PI/AK_ACTUAL
+CALL LEGINIT(comm_grp, M_ACTUAL)
+! write(*,*) 'M,AK:',M(2),AK(2,2),ZLEN
+
+! ALLOCATE EVP MATRIX
+NR_MK = NRCHOPS(2)
+IF (ALLOCATED(H) .AND. (SIZE(H, 1) .NE. 3*NR_MK)) THEN
+    DEALLOCATE(H)
+    ALLOCATE(H(3*NR_MK, 3*NR_MK))
+ELSEIF (.NOT. (ALLOCATED(H))) THEN
+    ALLOCATE(H(3*NR_MK, 3*NR_MK))
+END IF
+H = CMPLX(0.D0, 0.D0, P8)
+
+! SPLIT NR_MK
+IF (isserial) THEN
+    MPI_NR_INDEX = 0; MPI_NR_SIZE = NR_MK
+ELSE
+    CALL DECOMPOSE(NR_MK, MPI_GLB_PROCS, MPI_GLB_RANK, MPI_NR_SIZE, MPI_NR_INDEX)
+ENDIF
+
+! MAIN JOB
+ALLOCATE (PSIU(NRCHOPDIM), CHIU(NRCHOPDIM), BU(NRCHOPDIM))
+ALLOCATE (PSI1(NRCHOPDIM), CHI1(NRCHOPDIM), B1(NRCHOPDIM))
+ALLOCATE (PSI2(NRCHOPDIM), CHI2(NRCHOPDIM), B2(NRCHOPDIM))
+! ALLOCATE (PSI3(NRCHOPDIM), CHI3(NRCHOPDIM), B3(NRCHOPDIM))
+
+DO I = MPI_NR_INDEX + 1, MPI_NR_INDEX + MPI_NR_SIZE
+! ================================ PSI =================================
+    PSIU = 0.D0; CHIU = 0.D0; BU = 0.D0
+    PSIU(I) = 1.D0
+
+    ! ! VISCOSITY/HYPERV
+    ! CALL CHOPSET(2)
+    ! IF (VISC%SW .EQ. 1) THEN
+    !     CALL DEL2_MK(PSIU, PSI3)
+    !     PSI3 = PSI3*VISC%NU
+    ! ELSE IF (VISC%SW .EQ. 2) THEN
+    !     CALL CHOPSET(-2 + VISC%P)
+    !     CALL HELMP_MK(VISC%P, PSIU, PSI3, 0.D0)
+    !     IF (MOD(VISC%P/2, 2) .EQ. 0) PSI3 = -PSI3
+    !     PSI3 = PSI3*VISC%NUP
+    !     CALL CHOPSET(2 - VISC%P)
+    ! ELSE
+    !     PSI3 = 0.D0
+    ! END IF
+    ! CHI3 = 0.D0
+    ! CALL CHOPSET(-2)
+
+    ! NONLINEAR TERM
+    ! ( BU = 0 )
+    CALL BSNSQ_NONLIN_MK(NRCHOPDIM,PSIU,CHIU,PSI1,CHI1,BD=B1)
+
+    ! LINEAR TERM
+    CALL BSNSQ_LINEAR_MK(NRCHOPDIM,PSIU,CHIU,BU,PSI2,CHI2)
+
+    PSI1 = PSI1 + PSI2
+    CHI1 = CHI1 + CHI2
+
+    H(        1:  NR_MK, I) = PSI1(:NR_MK)
+    H(  NR_MK+1:2*NR_MK, I) = CHI1(:NR_MK)
+    H(2*NR_MK+1:3*NR_MK, I) =   B1(:NR_MK)
+
+! ============================== DEL2CHI ===============================
+    PSIU = 0.D0; CHIU = 0.D0; BU = 0.D0
+    CHIU(I) = 1.D0
+
+    CALL IDEL2_MK(CHIU, CHI1)
+    CHIU = CHI1
+    CHI1 = 0.D0
+
+    ! IF (VISC%SW .NE. 0) THEN
+    !     CHI3 = PSI3
+    ! ELSE
+    !     CHI3 = 0.D0
+    ! END IF
+    ! PSI3 = 0.D0
+    
+    ! NONLINEAR TERM
+    ! ( BU = 0)
+    CALL BSNSQ_NONLIN_MK(NRCHOPDIM,PSIU,CHIU,PSI1,CHI1,BD=B1)
+
+    ! LINEAR TERM
+    CALL BSNSQ_LINEAR_MK(NRCHOPDIM,PSIU,CHIU,BU,PSI2,CHI2)
+
+    PSI1 = PSI1 + PSI2
+    CHI1 = CHI1 + CHI2
+
+    H(        1:  NR_MK, I+NR_MK) = PSI1(:NR_MK)
+    H(  NR_MK+1:2*NR_MK, I+NR_MK) = CHI1(:NR_MK)
+    H(2*NR_MK+1:3*NR_MK, I+NR_MK) =   B1(:NR_MK)
+
+! ================================= B ==================================
+    PSIU = 0.D0; CHIU = 0.D0; BU = 0.D0
+    BU(I) = 1.D0
+
+    ! IF (VISC%SW .NE. 0) THEN
+    !     CHI3 = PSI3
+    ! ELSE
+    !     CHI3 = 0.D0
+    ! END IF
+    ! PSI3 = 0.D0
+    
+    ! NONLINEAR TERM
+    ! ( BU != 0)
+    CALL BSNSQ_NONLIN_MK(NRCHOPDIM,PSIU,CHIU,PSI1,CHI1,BU=BU,BD=B1)
+
+    ! LINEAR TERM
+    CALL BSNSQ_LINEAR_MK(NRCHOPDIM,PSIU,CHIU,BU,PSI2,CHI2)
+
+    PSI1 = PSI1 + PSI2
+    CHI1 = CHI1 + CHI2
+
+    H(        1:  NR_MK, I+2*NR_MK) = PSI1(:NR_MK)
+    H(  NR_MK+1:2*NR_MK, I+2*NR_MK) = CHI1(:NR_MK)
+    H(2*NR_MK+1:3*NR_MK, I+2*NR_MK) =   B1(:NR_MK)
+
+END DO
+DEALLOCATE(PSIU, CHIU, BU)
+DEALLOCATE(PSI1, CHI1, B1)
+DEALLOCATE(PSI2, CHI2, B2)
+! DEALLOCATE(PSI3, CHI3, B3)
+
+IF (.NOT.(isserial)) THEN
+    CALL MPI_ALLREDUCE(MPI_IN_PLACE, H, SIZE(H), MPI_DOUBLE_COMPLEX, MPI_SUM, &
+                    MPI_COMM_WORLD, IERR)
+    CALL MPI_BARRIER(MPI_COMM_WORLD, IERR)
+ENDIF
+
+! OUTPUT:
+IF ((MPI_GLB_RANK.EQ.0).OR.(isserial)) THEN  ! START OF THE SERIAL PART
+!WRITE OUT THE 3D MATRIX IN THE SCALAR USING UNFORMATTED MODE
+
+    IF (flip_switch) THEN
+        H = CONJG(H)
+    ENDIF
+
+    IF (PRESENT(EIG_VAL)) THEN
+        IF (ALLOCATED(EIG_VAL)) DEALLOCATE (EIG_VAL)
+        ALLOCATE (EIG_VAL(3*NR_MK))
+
+        IF (PRESENT(EIG_VEC_L)) THEN
+            IF (ALLOCATED(EIG_VEC_R)) DEALLOCATE (EIG_VEC_R)
+            IF (ALLOCATED(EIG_VEC_L)) DEALLOCATE (EIG_VEC_L)
+            ALLOCATE (EIG_VEC_R(3*NR_MK, 3*NR_MK), EIG_VEC_L(3*NR_MK, 3*NR_MK))
+            CALL EIGENDECOMPOSE(H, EIG_VAL, ER=EIG_VEC_R, EL=EIG_VEC_L)
+        ELSEIF (PRESENT(EIG_VEC_R)) THEN
+            IF (ALLOCATED(EIG_VEC_R)) DEALLOCATE (EIG_VEC_R)
+            ALLOCATE (EIG_VEC_R(3*NR_MK, 3*NR_MK))
+            CALL EIGENDECOMPOSE(H, EIG_VAL, ER=EIG_VEC_R)
+        ELSE
+            CALL EIGENDECOMPOSE(H, EIG_VAL)
+        END IF
+    END IF
+
+    IF (PRESENT(print_switch)) THEN
+        WRITE(K_WRITTEN,'(F06.2)') AKREAD
+        open (10, FILE='./converg/eigM_MK_'//ITOA3(MREAD)//'_'//K_WRITTEN &
+                //'.output', STATUS='unknown', ACTION='WRITE', IOSTAT=IS)
+        if (IS .ne. 0) then
+            print *, 'ERROR: EIG_MATRIX -- Could not creat new file'
+            RETURN
+        end if
+        DO I = 1, 3*NR_MK
+            WRITE (10, *) H(I, 1:20)
+        END DO
+        close (10)
+        write (*, *) 'EVP MAT: max element = ', maxval(abs(H))
+        write (*, *) 'EVP MAT: maxUR = ', maxval(abs(RUR0(1:NR)/TFM%R))
+        write (*, *) 'EVP MAT: maxUP = ', maxval(abs(RUP0(1:NR)/TFM%R))
+        write (*, *) 'EVP MAT: maxUZ = ', maxval(abs( UZ0(1:NR)))
+        write (*, *) 'EVP MAT: maxOR = ', maxval(abs(ROR0(1:NR)/TFM%R))
+        write (*, *) 'EVP MAT: maxOP = ', maxval(abs(ROP0(1:NR)/TFM%R))
+        write (*, *) 'EVP MAT: maxOZ = ', maxval(abs( OZ0(1:NR)))
+    END IF
+END IF
+
+RETURN
+
+END SUBROUTINE EIG_MATRIX_BSNSQ
 ! ======================================================================
 
 SUBROUTINE EIG2VELVOR(MREAD,AKREAD,EIG_IND,EIG_VEC_R,EIG_VEC_L,RUR,RUP,UZ,ROR,ROP,OZ,VEC_R,VEC_L,comm_grp)
@@ -2305,6 +2644,65 @@ ENDDO
 close(10)
 
 END SUBROUTINE SAVE_PERTURB
+! ======================================================================
+
+SUBROUTINE SAVE_PERTURB_BSNSQ(FILENAME,&
+    M_1, K_VAL_1, VEC_1, M_eig_1)
+! ======================================================================
+! CREATE PERTURBATION FILE
+! ======================================================================
+IMPLICIT NONE
+CHARACTER(LEN=*):: FILENAME                              
+COMPLEX(P8),DIMENSION(:):: VEC_1
+INTEGER:: M_1
+REAL(P8):: K_VAL_1
+COMPLEX(P8):: M_eig_1
+
+INTEGER:: I, IS, NDIM
+REAL(P8):: rp1 = 1.D0, ip1 = 0.D0
+
+open(10,FILE=FILENAME,STATUS='unknown',ACTION='WRITE',IOSTAT=IS)
+
+if (IS.ne.0) then
+    print *, 'ERROR: createperturb -- Could not creat new file new_perturb.dat'
+    RETURN
+end if
+
+! Number of perturbation 
+I = 1
+WRITE(10,'(I2)') I
+DO IS=1,I
+    WRITE(10,'(F10.8,1X,F10.8)') rp1, ip1
+ENDDO
+
+! EIG_1
+WRITE(10,*) 'eigenfunction'
+WRITE(10,108) 'ndim','m','k'
+NDIM = size(VEC_1,1)/3
+WRITE(10,109) NDIM, M_1, K_VAL_1
+    ! Below are not actually used:
+    WRITE(10,108) 'q','h','b'
+    WRITE(10,110) QPAIR%Q(1),QPAIR%H(1),QPAIR%B(1) ! MIGHT NEED TO CHANGE!!!!!! 
+    WRITE(10,108) 'nu_pow','nu','lmap'
+    WRITE(10,110) VISC%NUP,VISC%NU,ELL
+    WRITE(10,'(9X,A9,9X,A9)') 're(sigma)','im(sigma)'
+    WRITE(10,113) REAL(M_eig_1),AIMAG(M_eig_1)
+    WRITE(10,*) 'radial spectral coefficients'
+    WRITE(10,111) 're(psi)','im(psi)','re(chi)','im(chi)','re(chi)','im(chi)'
+DO I = 1,NDIM
+    WRITE(10,112) REAL(VEC_1(I)),AIMAG(VEC_1(I)),REAL(VEC_1(NDIM+I)),AIMAG(VEC_1(NDIM+I)),REAL(VEC_1(2*NDIM+I)),AIMAG(VEC_1(2*NDIM+I))
+ENDDO
+
+108  FORMAT(3(10X,A10))
+109  FORMAT(2(10X,I10),10X,F10.6)
+110  FORMAT(3(10X,F10.6))
+111  FORMAT(6(10X,A10))
+112  FORMAT(6(G20.12,:,''))
+113  FORMAT(10X,F10.6,10X,F10.6)
+
+close(10)
+
+END SUBROUTINE SAVE_PERTURB_BSNSQ
 ! ======================================================================
 
 SUBROUTINE SAVE_MODE(MREAD, AKREAD, EIG_MAT, EIG_VAL, EIG_VEC_R, EIG_VEC_L)

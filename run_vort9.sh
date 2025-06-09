@@ -5,8 +5,8 @@
 #SBATCH --nodes=4             # Total # of nodes 
 #SBATCH --ntasks-per-node=32  # Total # of MPI tasks per node
 #SBATCH --cpus-per-task=4     # cpu-cores per task (default value is 1, >1 for multi-threaded tasks)
-#SBATCH --time=00:30:00       # Total run time limit (hh:mm:ss)
-#SBATCH -J vort-240929        # Job name
+#SBATCH --time=03:00:00       # Total run time limit (hh:mm:ss)
+#SBATCH -J vort-240612        # Job name
 #SBATCH -o vort9.o%j          # Name of stdout output file
 #SBATCH -e vort9.e%j          # Name of stderr error file
 #SBATCH -p wholenode          # Queue (partition) name
@@ -27,14 +27,14 @@ echo "$SLURM_NTASKS tasks - $SLURM_CPUS_PER_TASK cores per task"
 start_time="$(date -u +%s.%N)"
 # # srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/evp_three_k0_exec
 srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/init_exec
-# # 2. add perturbation to the base flow
+# 2. add perturbation to the base flow
 printf '%s\n' "new_perturb" "T" | srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/addperturb_non_exec
-# # printf '%s\n' "cor_perturb" "F" "T" | srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/addperturb_non_exec
+printf '%s\n' "cor_perturb" "F" "T" | srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/addperturb_non_exec
 # #echo "new_perturb" | srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/addperturb_non_exec
 # # 3. run initial value code
-echo "new_perturb" | srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/vort9_exec
+# echo "new_perturb" | srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/vort9_exec
 # echo "new_perturb" | srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/vort_test_exec
-# echo "cor_perturb" | srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/vort9_exec
+echo "cor_perturb" | srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/vort9_exec
 
 # 4. finalize
 end_time="$(date -u +%s.%N)"

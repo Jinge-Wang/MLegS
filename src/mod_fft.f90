@@ -1807,7 +1807,7 @@ SUBROUTINE HORFFT(A,IS)
         !               #1   #2   #3
         ! LOCAL_ARRAY2: N2 X N3 X N1
         ! LOCAL_ARRAY : N1 X N2 X N3
-        LOCAL_ARRAY = RESHAPE(LOCAL_ARRAY2,SHAPE(LOCAL_ARRAY),ORDER = [3,1,2])
+        LOCAL_ARRAY = RESHAPE(LOCAL_ARRAY2,SHAPE(LOCAL_ARRAY),ORDER = [2,3,1])
 
         ! DO KK = 1,N1_loc
         !     DO JJ = 1,N3_loc

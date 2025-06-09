@@ -3,13 +3,13 @@ MODULE MOD_LIN_LEGENDRE ! LEVEL 1 MODULE
 ! ALL MATRIX OPERATORS ARE FOR A SINGLE M. INDEPDENT OF K.
   USE omp_lib
   USE MPI
-  USE MOD_MISC, ONLY: P4, P8, PI, IU, ITOA3                             ! LEVEL 0
+  USE MOD_MISC, ONLY: P4, P8, PI, IU                                   ! LEVEL 0
   IMPLICIT NONE
   PRIVATE
 !=======================================================================
 !============================ PARAMETERS ===============================
 !=======================================================================
-  REAL(P8), DIMENSION(1:129) :: FACVAL = 0.D0                           ! STORE FACT1 VALUES ONCE EXECUTED
+  REAL(P8), DIMENSION(1:129) :: FACVAL = 0.D0                        ! STORE FACT1 VALUES ONCE EXECUTED
 !=======================================================================
 !======================== PUBLIC DECLARATION ===========================
 !=======================================================================
@@ -619,7 +619,7 @@ CONTAINS
           IF ((WARNING_SWITCH .GT. 0).AND.(LEG_TBL3(XX, NN, MM).EQ.0.D0)) THEN
 
             IF (WARNING_SWITCH == 1) THEN
-              WRITE(6,*) 'WARNING of LEG_TBL3: ENTRY(S) IS SMALLER THAN DP LIMIT - STORED AS ZERO - M >= ',ITOA3(M)
+              WRITE(6,*) 'WARNING of LEG_TBL3: ENTRY(S) IS SMALLER THAN DP LIMIT - STORED AS ZERO'
               WARNING_SWITCH = 0
             ELSE
               WRITE(6,"(' WARNING of LEG_TBL3: ( XX = ',I3,"  //  &

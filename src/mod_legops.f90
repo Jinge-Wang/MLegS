@@ -49,11 +49,14 @@ PUBLIC:: DEL2, IDEL2, IDEL2LN                                      ! LOG-TERM EN
 PUBLIC:: HELM, IHELM
 ! DEL^P OPERATORS WHERE P IS EVEN AND >=4 (FORWARD, INV, INV_VER2)
 PUBLIC:: HELMP, IHELMP, IHELMPO
+! SCALAR FIELD TO ITS GRADIENT
+PUBLIC:: GRAD
 ! PT-DECOMPOSED VECTOR (PSI,CHI) TO VELOCITY OR VORTICITY
 PUBLIC:: PC2VEL                                                    !  PC2VEL: (PSI,CHI) TO VELOCITY (R*U_R,R*U_PHI,U_Z)
 PUBLIC:: PC2VOR                                                    !  PC2VOR: (PSI,CHI) TO VORTICITY (R*O_R,R*O_PHI,O_Z) 
 ! COMPUTE VECTOR PRODUCT
 PUBLIC:: VPROD
+PUBLIC:: VPRODSUB, VDOTPSUB
 ! ! COMPUTE VECTOR PRODUCT with Q-vortex
 ! PUBLIC:: VPROD_PFF      
 ! PROJECTION OPERATOR INTO TOROIDAL AND POLOIDAL SPACE
@@ -66,6 +69,7 @@ CONTAINS
 !=======================================================================
 !============================ SUBROUTINES ==============================
 !=======================================================================
+
 SUBROUTINE DELSQH(A,B)
 !=======================================================================
 ! [USAGE]: 
@@ -124,6 +128,7 @@ ENDIF
 RETURN
 END SUBROUTINE DELSQH
 !=======================================================================
+
 SUBROUTINE IDELSQH(B,A)
 !=======================================================================
 ! [USAGE]: 
@@ -228,6 +233,7 @@ ENDIF
 RETURN
 END SUBROUTINE IDELSQH
 !=======================================================================
+
 SUBROUTINE MULXP(A,B)
 !=======================================================================
 ! [USAGE]: 
@@ -288,6 +294,7 @@ DEALLOCATE( XP )
 RETURN
 END SUBROUTINE MULXP
 !=======================================================================
+
 SUBROUTINE DIVXP(B,A)
 !=======================================================================
 ! [USAGE]: 
@@ -354,6 +361,7 @@ DEALLOCATE( XP )
 RETURN
 END SUBROUTINE DIVXP
 !=======================================================================
+
 SUBROUTINE MULXM(A,B)
 !=======================================================================
 ! [USAGE]: 
@@ -413,6 +421,7 @@ DEALLOCATE( XM )
 RETURN
 END SUBROUTINE MULXM
 !=======================================================================
+
 SUBROUTINE DIVXM(B,A)
 !=======================================================================
 ! [USAGE]: 
@@ -478,6 +487,7 @@ DEALLOCATE( XM )
 RETURN
 END SUBROUTINE DIVXM
 !=======================================================================
+
 SUBROUTINE MULXMDIVXP(A,B,SP)
 !=======================================================================
 ! [USAGE]: 
@@ -511,6 +521,7 @@ CALL DEALLOCATE( C )
 RETURN
 END SUBROUTINE MULXMDIVXP
 !=======================================================================
+
 SUBROUTINE XXDX(A,B)
 !=======================================================================
 ! [USAGE]: 
@@ -548,7 +559,7 @@ IF ((A%INTH.LT.2).AND.(A%INTH+SIZE(A%E,2).GE.2)) THEN
   IF(ABS(A%E(NRCHOPS(2),MM,1)).GT.1.E-15) THEN
     WRITE(*,*) 'XXDX: OPERATION NOT EXACT'
     WRITE(*,*)  A%E(NRCHOPS(2),2,1)
-    CALL MPI_ABORT(MPI_COMM_IVP,1,IERR) ! 1 is just a place holder
+    ! CALL MPI_ABORT(MPI_COMM_IVP,1,IERR) ! 1 is just a place holder
   ENDIF
 ENDIF
 
@@ -581,6 +592,7 @@ ENDIF
 RETURN
 END SUBROUTINE XXDX
 !=======================================================================
+
 SUBROUTINE DEL2(A,B)
 !=======================================================================
 ! [USAGE]: 
@@ -652,6 +664,7 @@ ENDIF
 RETURN
 END SUBROUTINE DEL2
 !=======================================================================
+
 SUBROUTINE IDEL2(B,A,LN)
 !=======================================================================
 ! [USAGE]: 
@@ -823,6 +836,7 @@ ENDIF
 RETURN
 END SUBROUTINE IDEL2
 !=======================================================================
+
 SUBROUTINE IDEL2LN(B,A)
 !=======================================================================
 ! [USAGE]: 
@@ -994,6 +1008,7 @@ IF ((B%INTH.EQ.0).AND.(B%INX.EQ.0)) B%LN = -ALP*A%LN
 RETURN
 END SUBROUTINE HELM
 !=======================================================================
+
 SUBROUTINE IHELM(B,A,ALP)
 !=======================================================================
 ! [USAGE]: 
@@ -1146,6 +1161,7 @@ ENDIF
 RETURN
 END SUBROUTINE IHELM
 !=======================================================================
+
 SUBROUTINE HELMP(P,A,B,ALP,NU)
 !=======================================================================
 ! [USAGE]: 
@@ -1514,8 +1530,64 @@ CALL CHOPDO(A)
 
 RETURN
 END SUBROUTINE IHELMPO
-
 !=======================================================================
+
+SUBROUTINE GRAD(A,RAR,RAP,AZ)
+!=======================================================================
+! [USAGE]: 
+! CALCUATE THE GRADIENT OF A SCALAR FIELD
+! RETURN (R*GRAD(A)_R,R*GRAD(A)_P,GRAD(A)_Z) IN FFF SPACE
+! [PARAMETERS]:
+! A   >> A SCALAR FIELD
+! RAR >> ON EXIT, R*A_R   (R* RADIAL COMP. OF A'S GRADIENT)
+! RAP >> ON EXIT, R*A_P/R (R* AZIMUTHAL COMP. OF A'S GRADIENT)
+! AZ  >> ON EXIT,   A_Z   (AXIAL COMP. OF A'S GRADIENT)
+! [NOTE]:
+! FOR A SCALAR FIELD A, THE GRADIENT IS DEFINED AS
+! GRAD(A) = (D/DR(A),(D/DP(A))/R,D/DZ(A))
+! [DEPENDENCIES]:
+! 1. XXDX(~) @ MOD_LEGOPS
+! 2. (DE)ALLOCATE(SCALAR) @ MOD_SCALAR3
+! [UPDATES]:
+! CODED BY JINGE WANG @ OCT 30 2024
+!=======================================================================
+IMPLICIT NONE
+TYPE(SCALAR),INTENT(IN):: A
+TYPE(SCALAR),INTENT(INOUT):: RAR,RAP,AZ
+INTEGER:: MM,KK,NN,MV
+REAL(P8):: KV
+
+! ALLOCATION
+IF (RAR%SPACE.NE.FFF_SPACE) THEN
+  CALL ALLOCATE(RAR,FFF_SPACE)
+  CALL ALLOCATE(RAP,FFF_SPACE)
+  CALL ALLOCATE( AZ,FFF_SPACE)
+ENDIF
+
+! RAR = R*D/DR(A)
+CALL XXDX(A,RAR)
+
+!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(NN,MV,KV,KK)
+DO MM=1,SIZE(A%E,2) !NTCHOP
+  NN=NRCHOPS(MM+A%INTH)
+  MV=M(MM+A%INTH)
+  DO KK=1,SIZE(A%E,3) !NXCHOPDIM
+    KV=AK(MM+A%INTH,KK+A%INX)
+    
+    ! RAP = R*D/DPHI(A)/R = D/DPHI(A) = IU*MV*A
+    RAP%E(:NN,MM,KK)=IU*MV*A%E(:NN,MM,KK)
+
+    ! AZ = D/DZ(A) = IU*KV*A
+     AZ%E(:NN,MM,KK)=IU*KV*A%E(:NN,MM,KK)
+    
+  ENDDO
+ENDDO
+!$OMP END PARALLEL DO
+
+RETURN
+END SUBROUTINE GRAD
+!=======================================================================
+
 SUBROUTINE PC2VEL(PSI,CHI,RUR,RUP,UZ,C)
 !=======================================================================
 ! [USAGE]: 
@@ -1582,6 +1654,7 @@ UZ%E = -UZ%E
 RETURN
 END SUBROUTINE PC2VEL
 !=======================================================================
+
 SUBROUTINE PC2VOR(PSI,CHI,ROR,ROP,OZ,C)
 !=======================================================================
 ! [USAGE]: 
@@ -1647,6 +1720,7 @@ OZ%E = -OZ%E
 RETURN
 END SUBROUTINE PC2VOR
 !=======================================================================
+
 SUBROUTINE VPROD(RUR,RUP,UZ,ROR,ROP,OZ,IS_FREESTREAM)
 !=======================================================================
 ! [USAGE]: 
@@ -1662,7 +1736,7 @@ SUBROUTINE VPROD(RUR,RUP,UZ,ROR,ROP,OZ,IS_FREESTREAM)
 ! ROP >> ON ENTRY, R*OMEGA_P TERM FROM PC2VOR
 !        ON EXIT, R*[THE SECOND COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)]
 !                 IN PHYSICAL-PHYSICAL-PHYSICAL SPACE
-! OZ >> ON ENTRY, OMEGA_Z TERM FROM PC2OZ
+!  OZ >> ON ENTRY, OMEGA_Z TERM FROM PC2OZ
 !        ON EXIT, THE THIRD COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)
 !                 IN PHYSICAL-PHYSICAL-PHYSICAL SPACE
 ! [DEPENDENCIES]:
@@ -1696,6 +1770,7 @@ ENDIF
 RETURN
 END SUBROUTINE VPROD
 !=======================================================================
+
 SUBROUTINE VPRODSUB(RUR,RUP,UZ,ROR,ROP,OZ,NI,NJ,NK,IR,IS_FREESTREAM)
 !=======================================================================
 ! [USAGE]: 
@@ -1704,14 +1779,14 @@ SUBROUTINE VPRODSUB(RUR,RUP,UZ,ROR,ROP,OZ,NI,NJ,NK,IR,IS_FREESTREAM)
 ! [PARAMETERS]:
 ! RUR >> ON ENTRY, R*U_R IN PPP SPACE
 ! RUP >> ON ENTRY, R*U_P IN PPP SPACE
-! UZ >> ON ENTRY, U_Z IN PPP SPACE
+!  UZ >> ON ENTRY, U_Z IN PPP SPACE
 ! ROR >> ON ENTRY, R*OMEGA_R IN PPP SPACE
 !        ON EXIT, R*[THE FIRST COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)]
 !                 IN PHYSICAL-PHYSICAL-PHYSICAL SPACE
 ! ROP >> ON ENTRY, R*OMEGA_P IN PPP SPACE
 !        ON EXIT, R*[THE SECOND COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)]
 !                 IN PHYSICAL-PHYSICAL-PHYSICAL SPACE
-! OZ >> ON ENTRY, OMEGA_Z IN PPP SPACE
+!  OZ >> ON ENTRY, OMEGA_Z IN PPP SPACE
 !        ON EXIT, THE THIRD COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)
 !                 IN PHYSICAL-PHYSICAL-PHYSICAL SPACE
 ! NI >> 1ST DIMENSION SIZE (IN THE X(OR R) DIRECTION)
@@ -1731,10 +1806,11 @@ REAL(P8):: TH1,TH2,FUR1,FUP1,FUR2,FUP2,FSR1,FSP1,FSR2,FSP2,R
 COMPLEX(P8):: CM1,CM2
 REAL(P8):: AAA,BBB,CFL_R,CFL_P,CFL_Z,URMAX,UPMAX,UZMAX
 
-IF ((PRESENT(IS_FREESTREAM)).AND.(.NOT.(IS_FREESTREAM))) GOTO 1765
-
 !> LOCAL COUNT OF RADIAL ELEMENTS
 NRTEMP = MIN(NI,NR-IR)
+
+! IF (.NOT.(PRESENT(IS_FREESTREAM))) GOTO 1842
+IF ((PRESENT(IS_FREESTREAM)).AND.(.NOT.(IS_FREESTREAM))) GOTO 1909
 
 !> FREESTREAM & STRAIN
 !UZ(:NR,:NTH,:NX) = UZ(:NR,:NTH,:NX)+CMPLX(NADD%UZ,NADD%UZ)
@@ -1764,6 +1840,7 @@ DO MM=1,NTH ! PPP-SPACE has all Theta
 ENDDO
 !$OMP END PARALLEL DO
 
+1842 CONTINUE
 !> MAXIMUM VELOCITY MONITOR
 IF(VELMON%N.EQ.0) THEN
   !VELMON%URMAX=0
@@ -1829,37 +1906,134 @@ IF(VELMON%N.EQ.0) THEN
 ENDIF
 VELMON%N = MOD(VELMON%N+1,VELMON%INT)
 
-1765 CONTINUE
+1909 CONTINUE
 !> CROSS PRODUCT
 !$OMP PARALLEL DO DEFAULT(SHARED) &
 !$OMP& PRIVATE(A1,A2,A3,C1,C2,C3,B1,B2,B3,D1,D2,D3) COLLAPSE(2)
 DO KK=1,NK !NX
-    DO MM=1,NTH
-      DO NN=1,NRTEMP !NR
-          A1=REAL(RUR(NN,MM,KK))
-          A2=REAL(RUP(NN,MM,KK))
-          A3=REAL(UZ(NN,MM,KK))
-          C1=AIMAG(RUR(NN,MM,KK))
-          C2=AIMAG(RUP(NN,MM,KK))
-          C3=AIMAG(UZ(NN,MM,KK))
-          B1=REAL(ROR(NN,MM,KK))
-          B2=REAL(ROP(NN,MM,KK))
-          B3=REAL(OZ(NN,MM,KK))
-          D1=AIMAG(ROR(NN,MM,KK))
-          D2=AIMAG(ROP(NN,MM,KK))
-          D3=AIMAG(OZ(NN,MM,KK))
-          ROR(NN,MM,KK)=CMPLX(A2*B3-A3*B2, C2*D3-C3*D2,P8)
-          ROP(NN,MM,KK)=CMPLX(A3*B1-A1*B3, C3*D1-C1*D3,P8)
-          OZ(NN,MM,KK)=CMPLX(A1*B2-A2*B1, C1*D2-C2*D1,P8)&
-                      /TFM%R(NN+IR)**2.
-      ENDDO
+  DO MM=1,NTH
+    DO NN=1,NRTEMP !NR
+        A1=REAL(RUR(NN,MM,KK))
+        A2=REAL(RUP(NN,MM,KK))
+        A3=REAL(UZ(NN,MM,KK))
+        C1=AIMAG(RUR(NN,MM,KK))
+        C2=AIMAG(RUP(NN,MM,KK))
+        C3=AIMAG(UZ(NN,MM,KK))
+        B1=REAL(ROR(NN,MM,KK))
+        B2=REAL(ROP(NN,MM,KK))
+        B3=REAL(OZ(NN,MM,KK))
+        D1=AIMAG(ROR(NN,MM,KK))
+        D2=AIMAG(ROP(NN,MM,KK))
+        D3=AIMAG(OZ(NN,MM,KK))
+        ROR(NN,MM,KK)=CMPLX(A2*B3-A3*B2, C2*D3-C3*D2,P8)
+        ROP(NN,MM,KK)=CMPLX(A3*B1-A1*B3, C3*D1-C1*D3,P8)
+        OZ(NN,MM,KK)=CMPLX(A1*B2-A2*B1, C1*D2-C2*D1,P8)&
+                    /TFM%R(NN+IR)**2.
     ENDDO
+  ENDDO
 ENDDO
 !$OMP END PARALLEL DO
 
 RETURN
 END SUBROUTINE VPRODSUB
 !=======================================================================
+
+FUNCTION VDOTPSUB(RAR,RAP,AZ,RBR,RBP,BZ,NI,NJ,NK,IR,IS_FREESTREAM)
+!=======================================================================
+! [USAGE]: 
+! COMPUTE A VECTOR DOT PRODUCT VDOTP = (AR,AP,AZ) . (BR,BP,BZ)
+! [PARAMETERS]:
+! RAR >> ON ENTRY, R*A_R IN PPP SPACE
+! RAP >> ON ENTRY, R*A_P IN PPP SPACE
+!  AZ >> ON ENTRY,   A_Z IN PPP SPACE
+! RBR >> ON ENTRY, R*B_R IN PPP SPACE
+! RBP >> ON ENTRY, R*B_P IN PPP SPACE
+!  BZ >> ON ENTRY,   B_Z IN PPP SPACE
+! NI >> 1ST DIMENSION SIZE (IN THE X(OR R) DIRECTION)
+! NJ >> 2ND DIMENSION SIZE (IN THE AZIMUTHAL DIRECTION)
+! NK >> 3RD DIMENSION SIZE (IN THE AXIAL DIRECTION)
+! [UPDATES]:
+! CODED BY JINGE WANG @ OCT 30 2024
+!=======================================================================
+IMPLICIT NONE
+INTEGER:: NI,NJ,NK
+COMPLEX(P8),DIMENSION(NI,NJ,NK):: RAR,RAP,AZ,RBR,RBP,BZ,VDOTPSUB
+LOGICAL, OPTIONAL:: IS_FREESTREAM
+
+INTEGER:: KK,MM,NN,IR,NRTEMP
+REAL(P8):: A1,A2,A3,B1,B2,B3,C1,C2,C3,D1,D2,D3
+REAL(P8):: TH1,TH2,FUR1,FUP1,FUR2,FUP2,FSR1,FSP1,FSR2,FSP2,R
+COMPLEX(P8):: CM1,CM2
+
+!> LOCAL COUNT OF RADIAL ELEMENTS
+NRTEMP = MIN(NI,NR-IR)
+
+IF ((PRESENT(IS_FREESTREAM)).AND.(.NOT.(IS_FREESTREAM))) GOTO 2000
+
+!> FREESTREAM & STRAIN
+AZ(:,:,:) = AZ(:,:,:)+CMPLX(NADD%UZ,NADD%UZ)
+!$OMP PARALLEL DO DEFAULT(SHARED)&
+!$OMP& PRIVATE(TH1,TH2,FUR1,FUP1,FUR2,FUP2,FSR1,FSP1,FSR2,FSP2,KK,NN,R,CM1,CM2)
+DO MM=1,NTH ! PPP-SPACE has all Theta
+  TH1=TFM%THR(MM)
+  TH2=TFM%THI(MM)
+  FUR1 =  NADD%U*COS(TH1-NADD%ANG)
+  FUP1 = -NADD%U*SIN(TH1-NADD%ANG)
+  FUR2 =  NADD%U*COS(TH2-NADD%ANG)
+  FUP2 = -NADD%U*SIN(TH2-NADD%ANG)
+  FSR1 =  NADD%STRAIN*SIN(2*TH1)
+  FSP1 =  NADD%STRAIN*COS(2*TH1)
+  FSR2 =  NADD%STRAIN*SIN(2*TH2)
+  FSP2 =  NADD%STRAIN*COS(2*TH2)
+  DO KK=1,NK !NX
+    DO NN=1,NRTEMP !NR
+      R = TFM%R(NN+IR)
+      CM1 = CMPLX(FUR1,FUR2)*R+CMPLX(FSR1,FSR2)*R**2
+      CM2 = CMPLX(FUP1,FUP2)*R+CMPLX(FSP1,FSP2)*R**2
+      RAR(NN,MM,KK)= RAR(NN,MM,KK)+CM1
+      RAP(NN,MM,KK)= RAP(NN,MM,KK)+CM2
+    ENDDO
+  ENDDO
+ENDDO
+!$OMP END PARALLEL DO
+
+2000 CONTINUE
+!> DOT PRODUCT
+!$OMP PARALLEL DO DEFAULT(SHARED) &
+!$OMP& PRIVATE(NN,R,A1,A2,A3,C1,C2,C3,B1,B2,B3,D1,D2,D3) COLLAPSE(2)
+DO KK=1,NK !NX
+  DO MM=1,NTH
+    DO NN=1,NRTEMP !NR
+      R = TFM%R(NN+IR)
+
+      A1=REAL(RAR(NN,MM,KK))
+      A2=REAL(RAP(NN,MM,KK))
+      A3=REAL( AZ(NN,MM,KK))
+
+      C1=AIMAG(RAR(NN,MM,KK))
+      C2=AIMAG(RAP(NN,MM,KK))
+      C3=AIMAG( AZ(NN,MM,KK))
+
+      B1=REAL(RBR(NN,MM,KK))
+      B2=REAL(RBP(NN,MM,KK))
+      B3=REAL( BZ(NN,MM,KK))
+
+      D1=AIMAG(RBR(NN,MM,KK))
+      D2=AIMAG(RBP(NN,MM,KK))
+      D3=AIMAG( BZ(NN,MM,KK))
+
+      VDOTPSUB(NN,MM,KK)=&
+      CMPLX( (A1*B1+A2*B2)/R**2 + A3*B3, &
+              (C1*D1+C2*D2)/R**2 + C3*D3, P8 )
+    ENDDO
+  ENDDO
+ENDDO
+!$OMP END PARALLEL DO
+
+RETURN
+END FUNCTION VDOTPSUB
+!=======================================================================
+
 SUBROUTINE PROJECT(RUR,RUP,UZ,PSI,CHI)
 !=======================================================================
 ! [USAGE]: 
@@ -2013,6 +2187,7 @@ ENDIF
 RETURN
 END SUBROUTINE PROJECT
 !=======================================================================
+
 SUBROUTINE EOMUL(A,B,C)
 !=======================================================================
 ! [USAGE]: 
@@ -2065,6 +2240,7 @@ DEALLOCATE( BE,BO )
 RETURN
 END SUBROUTINE EOMUL
 !=======================================================================
+
 SUBROUTINE OEMUL(A,B,C)
 !=======================================================================
 ! [USAGE]: 
@@ -2222,6 +2398,7 @@ END SUBROUTINE OEMUL
 ! RETURN
 ! END SUBROUTINE OEMUL2
 ! !=======================================================================
+
 SUBROUTINE NONLIN(PSI,CHI,PSIN,CHIN)
 !=======================================================================
 ! [USAGE]: 
@@ -2238,9 +2415,7 @@ SUBROUTINE NONLIN(PSI,CHI,PSIN,CHIN)
 ! [UPDATES]:
 ! RE-CODED BY SANGJOON LEE @ NOV 19 2020
 !=======================================================================
-!   COMPUTE NONLINEAR TERM
-!   OUTPUT RETURNS IN PSIN, CHIN
-! ----------------------------------------------------
+IMPLICIT NONE
 TYPE(SCALAR),INTENT(IN):: PSI,CHI
 TYPE(SCALAR),INTENT(INOUT)::PSIN,CHIN
 
@@ -2285,6 +2460,7 @@ CALL DEALLOCATE( W   )
 RETURN
 END SUBROUTINE NONLIN
 !=======================================================================
+
 SUBROUTINE VEL2VOR(RUR,RUP,UZ,ROR,ROP,OZ)
 !=======================================================================
 ! [USAGE]: 

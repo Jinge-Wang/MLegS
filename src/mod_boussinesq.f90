@@ -1,0 +1,499 @@
+MODULE MOD_BOUSSINESQ ! LEVEL 4 MODULE
+  USE omp_lib
+  USE MPI
+  USE MOD_MISC, ONLY : P4,P8,PI,IU,SPY,MSAVE,MLOAD,CFL               ! LEVEL 0
+!XUSE USE MOD_FD                                                         ! LEVEL 1
+  USE MOD_EIG                                                        ! LEVEL 1
+!XUSE USE MOD_LIN_LEGENDRE                                               ! LEVEL 1
+!XUSE USE MOD_BANDMAT                                                    ! LEVEL 1
+  USE MOD_SCALAR3                                                    ! LEVEL 2
+  USE MOD_FFT                                                        ! LEVEL 2.5
+  USE MOD_LEGOPS                                                     ! LEVEL 3
+!XUSE USE MOD_LAYOUT                                                     ! LEVEL 3
+  IMPLICIT NONE
+  PRIVATE
+!=======================================================================
+!============================ PARAMETERS ===============================
+!=======================================================================
+!1> BOUSSINESQ DATA
+PUBLIC:: BOUSS_DATA
+TYPE BOUSS_DATA
+  ! ANGULAR VELOCITY OF THE ROTATING FRAME
+  REAL(P8):: OMEGA
+  ! UNPERTURBED BRUNT-VAISALA FREQUENCY (LINEAR STRATIFICATION)  
+  REAL(P8):: BV0
+  ! HYPERDIFFUSIVITY
+  REAL(P8):: KAPPA, KAPPAP
+  ! NUMERICAL METHOD FOR LINEAR TERMS
+  LOGICAL :: ADAMS   ! = .TRUE.: USE ADAMS-BASHFORTH FOR THE LINEAR TERM
+END TYPE
+TYPE(BOUSS_DATA),PUBLIC:: BSNSQ   
+!=======================================================================
+!======================== PUBLIC DECLARATION ===========================
+!=======================================================================
+  ! TIME ADVANCEMENT SCHEMES (ADAMS-BASHFORTH, RICHARDSON, EULER)
+  PUBLIC:: BOUSSINESQ
+! ======================================================================
+
+CONTAINS
+!=======================================================================
+!============================ SUBROUTINES ==============================
+!=======================================================================
+SUBROUTINE CORIOLIS(PSI,CHI,RUR,RUP)
+!=======================================================================
+! [USAGE]: 
+! CALCULATE THE RADIAL AND AZIMUTHAL COMPONENT OF Z X U FROM PSI AND CHI
+! [PARAMETERS]:
+! PSI >> TOROIDAL TERM IN A SCALAR-TYPE VARIABLE
+! CHI >> POLOIDAL TERM IN A SCALAR-TYPE VARIABLE
+! RUR >> ON EXIT, R*(Z X U)_R TERM IN A SCALAR-TYPE VARIABLE
+! RUP >> ON EXIT, R*(Z X U)_P TERM IN A SCALAR-TYPE VARIABLE
+! [NOTE]:
+! Z X U = {(drPSI - dtheta dz CHI/R), (dthetaPSI/R + drdzCHI), 0 }
+! [DEPENDENCIES]:
+! 1. XXDX(~) @ MOD_LEGOPS
+! [UPDATES]:
+! CODED BY JINGE WANG @ OCT 10 2024
+!=======================================================================
+IMPLICIT NONE
+TYPE(SCALAR),INTENT(IN):: PSI,CHI
+TYPE(SCALAR),INTENT(INOUT):: RUR,RUP
+INTEGER:: MM,KK,NN,MV
+REAL(P8):: KV,OMEGA
+
+! IF FRAME IS NOT ROTATING
+IF (BSNSQ%OMEGA.EQ.0.D0) THEN
+  RUR%E = 0.D0
+  RUP%E = 0.D0
+  RETURN
+ENDIF
+
+OMEGA = BSNSQ%OMEGA
+
+CALL CHOPSET(1)
+CALL XXDX(PSI,RUR) ! RUR = R*D/DR(PSI)
+CALL XXDX(CHI,RUP) ! RUP = R*D/DR(CHI)
+CALL CHOPSET(-1)
+
+!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(NN,MV,KV,KK)
+DO MM=1,SIZE(PSI%E,2) !NTCHOP
+  NN=NRCHOPS(MM+PSI%INTH)
+  MV=M(MM+PSI%INTH)
+  DO KK=1,SIZE(PSI%E,3) !NXCHOPDIM
+    KV=AK(MM+PSI%INTH,KK+PSI%INX)
+
+    ! RUR = -2*OMEGA( R*D/DR(PSI) + (M*K)*CHI )
+    RUR%E(:NN,MM,KK)= ( RUR%E(:NN,MM,KK) &                       
+      +MV*KV*CHI%E(:NN,MM,KK) )*(-2*OMEGA)
+    
+    ! RUP = -2*OMEGA( R*D/DR(CHI)*I*K + (I*M)*PSI )
+    RUP%E(:NN,MM,KK)= ( IU*KV*RUP%E(:NN,MM,KK) &
+      +IU*MV*PSI%E(:NN,MM,KK) )*(-2*OMEGA)
+
+  ENDDO
+ENDDO
+!$OMP END PARALLEL DO
+
+RETURN
+END SUBROUTINE CORIOLIS
+!=======================================================================
+
+SUBROUTINE MULXM2(A,B)
+! ======================================================================
+! [USAGE]: 
+! [(1-X)^2]* OPERATOR.
+! [PARAMETERS]:
+! A >> INPUT IN FFF SPACE
+! B >> ON EXIT, [(1-X)^2]*A
+! [DEPENDENCIES]:
+! 1. MULXM(~) @ MOD_LEGOPS
+! 2. (DE)ALLOCATE(SCALAR) @ MOD_SCALAR3
+! [UPDATES]:
+! WRITTEN BY JINGE WANG @ OCT 15 2024
+!=======================================================================
+TYPE(SCALAR),INTENT(IN):: A
+TYPE(SCALAR),INTENT(INOUT):: B
+
+TYPE(SCALAR):: C
+
+CALL ALLOCATE( C )
+
+CALL MULXM(A,C)
+CALL MULXM(C,B)
+
+CALL DEALLOCATE( C )
+
+RETURN
+
+END SUBROUTINE MULXM2
+! ======================================================================
+
+SUBROUTINE DIVXM2(A,B)
+! ======================================================================
+! [USAGE]: 
+! [(1-X)^-2]* OPERATOR.
+! [PARAMETERS]:
+! A >> INPUT IN FFF SPACE
+! B >> ON EXIT, [(1-X)^-2]*A
+! [DEPENDENCIES]:
+! 1. MULXM(~) @ MOD_LEGOPS
+! 2. (DE)ALLOCATE(SCALAR) @ MOD_SCALAR3
+! [UPDATES]:
+! WRITTEN BY JINGE WANG @ OCT 15 2024
+!=======================================================================
+TYPE(SCALAR),INTENT(IN):: A
+TYPE(SCALAR),INTENT(INOUT):: B
+
+TYPE(SCALAR):: C
+
+CALL ALLOCATE( C )
+
+CALL DIVXM(A,C)
+CALL DIVXM(C,B)
+
+CALL DEALLOCATE( C )
+
+RETURN
+
+END SUBROUTINE DIVXM2
+! ======================================================================
+
+! SUBROUTINE DIRDIV(PSI,CHI,B,BN)
+! !=======================================================================
+! ! [USAGE]: 
+! ! CALCULATE (U.GRAD)B
+! ! [PARAMETERS]:
+! ! PSI >> TOROIDAL TERM IN A SCALAR-TYPE VARIABLE
+! ! CHI >> POLOIDAL TERM IN A SCALAR-TYPE VARIABLE
+! ! B   >> DENSITY TERM IN A SCALAR-TYPE VARIABLE
+! ! BN  >> (U.GRAD)B TERM IN A SCALAR-TYPE VARIABLE
+! ! [DEPENDENCIES]:
+! ! 1. XXDX(~) @ MOD_LEGOPS
+! ! 2. DELSQH(~) @ MOD_LEGOPS
+! ! 3. MULXM(~) @ MOD_LEGOPS
+! ! 4. MULXMDIVXP(~) @ MOD_LEGOPS
+! ! 5. (DE)ALLOCATE(SCALAR) @ MOD_SCALAR3
+! ! [UPDATES]:
+! ! CODED BY JINGE WANG @ OCT 10 2024
+! !=======================================================================
+! IMPLICIT NONE
+! TYPE(SCALAR),INTENT(IN):: PSI,CHI,B
+! TYPE(SCALAR),INTENT(INOUT):: BN
+! TYPE(SCALAR):: RDR_PSI,RDR_CHI,RDR_B,W
+! INTEGER:: MM,KK,NN,MV
+! REAL(P8):: KV
+
+! CALL ALLOCATE(RDR_PSI)
+! CALL ALLOCATE(RDR_CHI)
+! CALL ALLOCATE(RDR_B)
+! CALL ALLOCATE(W)
+
+! CALL CHOPSET(1)
+! CALL XXDX(PSI,RDR_PSI)
+! CALL XXDX(CHI,RDR_CHI)
+! CALL XXDX(B,RDR_B)
+! CALL DELSQH(CHI,W)
+! CALL CHOPSET(-1)
+
+! BN%E = 0.D0
+! !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(NN,MV,KV,KK)
+! DO MM=1,SIZE(PSI%E,2) !NTCHOP
+!   NN=NRCHOPS(MM+PSI%INTH)
+!   MV=M(MM+PSI%INTH)
+!   DO KK=1,SIZE(PSI%E,3) !NXCHOPDIM
+!     KV=AK(MM+PSI%INTH,KK+PSI%INX)
+
+!     ! BN = ((I*M)*PSI + I*K*(R*D/DR)CHI)*(R*D/DR)B
+!     BN%E(:NN,MM,KK) = ( IU*MV*PSI%E(:NN,MM,KK) + IU*KV*RDR_CHI%E(:NN,MM,KK) ) &
+!       *RDR_B%E(:NN,MM,KK)
+    
+!     ! BN -= (R(D/DR)PSI + M*K*CHI)*(I*M)B
+!     BN%E(:NN,MM,KK) = BN%E(:NN,MM,KK) - &
+!       ( RDR_PSI%E(:NN,MM,KK) + MV*KV*CHI%E(:NN,MM,KK) ) * IU*MV * B%E(:NN,MM,KK)
+    
+!     ! W = DEL_PERP(CHI)/(1-X)^2
+!     ! W = W * I*K*B
+!     W%E(:NN,MM,KK) = W%E(:NN,MM,KK) * ( IU*KV ) * B%E(:NN,MM,KK)
+
+!   ENDDO
+! ENDDO
+! !$OMP END PARALLEL DO
+
+! CALL CHOPSET(2)
+
+! ! RDR_CHI = W * (1-X)^2 = DEL_PERP(CHI) * I*K*B
+! RDR_CHI%E = 0.D0
+! CALL MULXM2(W,RDR_CHI)
+
+! ! W = BN * (1-X)/(1+X) / L^2
+! ! W = BN / R^2
+! W%E = 0.D0
+! CALL MULXMDIVXP(BN,W,.TRUE.)
+
+! CALL CHOPSET(-2)
+
+! BN%E = 0.D0
+! BN%E = W%E - RDR_CHI%E
+
+! CALL DEALLOCATE(RDR_PSI)
+! CALL DEALLOCATE(RDR_CHI)
+! CALL DEALLOCATE(RDR_B)
+! CALL DEALLOCATE(W)
+
+! END SUBROUTINE DIRDIV
+! ! ======================================================================
+
+! SUBROUTINE BOUSSINESQ_NONLIN(PSI,CHI,B,PSIN,CHIN,BN)
+! ! ======================================================================
+! ! [USAGE]: 
+! ! CALCULATE THE NONLINEAR TERM IN BOUSSINESQ APPROX
+! ! [PARAMETERS]:
+! ! PSI(N) >> TOROIDAL TERM IN A SCALAR-TYPE VARIABLE
+! ! CHI(N) >> POLOIDAL TERM IN A SCALAR-TYPE VARIABLE
+! ! B(N)   >> DENSITY TERM IN A SCALAR-TYPE VARIABLE
+! ! [DEPENDENCIES]:
+! ! 1. NONLIN(~) @ MOD_LEGOPS
+! ! 2. DIRDIV(~) @ MOD_BOUSSINESQ
+! ! [UPDATES]:
+! ! CODED BY JINGE WANG @ OCT 10 2024
+! !=======================================================================
+! IMPLICIT NONE
+! TYPE(SCALAR),INTENT(IN):: PSI,CHI,B
+! TYPE(SCALAR),INTENT(INOUT):: PSIN,CHIN,BN
+
+! ! PSIN AND CHIN: U X W
+! CALL NONLIN(PSI,CHI,PSIN,CHIN)
+
+! ! BN: -(U.GRAD)B
+! CALL DIRDIV(PSI,CHI,B,BN)
+! BN%E = -BN%E
+
+! END SUBROUTINE BOUSSINESQ_NONLIN
+! ! ======================================================================
+
+SUBROUTINE BOUSSINESQ_NONLIN(PSI,CHI,B,PSIN,CHIN,BN)
+!=======================================================================
+! [USAGE]: 
+! GIVEN POLOIDAL-TOROIDAL TERMS PSI AND CHI, COMPUTE THE NON-LINEAR
+! POLOIDAL-TOROIDAL TERMS PSIN AND CHIN FROM (U X OMEGA) (VPROD).
+! SEE EQ. (101) IN MATSUSHIMA AND MARCUS (1997).
+! [PARAMETERS]:
+! PSI >> TOROIDAL TERM OF THE VELOCITY FIELD
+! CHI >> POLOIDAL TERM OF THE VELOCITY FIELD
+! PSIN >> TOROIDAL TERM OF THE (U X OMEGA) FIELD
+! CHIN >> POLOIDAL TERM OF THE (U X OMEGA) FIELD
+! [DEPENDENCIES]:
+! 1. GRAD(~), PC2VEL(~), PC2VOR(~) @ MOD_LEGOPS
+! 2. VPRODSUB(~), VDOTPSUB(~) @ MOD_LEGOPS
+! 3. PROJECT(~), IDEL2(~) @ MOD_LEGOPS
+! 4. TOFP(~), TOFF(~) @ MOD_FFT
+! [UPDATES]:
+! RE-CODED BY SANGJOON LEE @ NOV 19 2020
+!=======================================================================
+IMPLICIT NONE
+TYPE(SCALAR),INTENT(IN):: PSI,CHI,B
+TYPE(SCALAR),INTENT(INOUT):: PSIN,CHIN,BN
+
+TYPE(SCALAR):: RUR,RUP,UZ
+TYPE(SCALAR):: ROR,ROP,OZ
+TYPE(SCALAR):: RBR,RBP,BZ
+TYPE(SCALAR):: W
+INTEGER:: NI,NJ,NK
+
+CALL ALLOCATE( RUR )
+CALL ALLOCATE( RUP )
+CALL ALLOCATE(  UZ )
+CALL ALLOCATE( ROR )
+CALL ALLOCATE( ROP )
+CALL ALLOCATE(  OZ )
+CALL ALLOCATE( RBR )
+CALL ALLOCATE( RBP )
+CALL ALLOCATE(  BZ )
+
+!> DEALIASING
+CALL CHOPSET(3)
+
+! OBTAINING GRAD(B)
+CALL GRAD(B,RBR,RBP,BZ)                                            ! NOTE: INPUT AND OUTPUTS ARE STILL IN FFF SPACE
+
+! OBTAINING VELOCITY AND VORTICITY
+CALL PC2VEL(PSI,CHI,RUR,RUP,UZ)                                    ! NOTE: INPUT AND OUTPUTS ARE STILL IN FFF SPACE
+CALL PC2VOR(PSI,CHI,ROR,ROP,OZ)                                    ! NOTE: INPUT AND OUTPUTS ARE STILL IN FFF SPACE
+
+! CALL VPROD(RUR,RUP,UZ,ROR,ROP,OZ)
+CALL TOFP(RUR)                                                     ! FFF -> PPP SPACE 
+CALL TOFP(RUP)                                                     ! FFF -> PPP SPACE
+CALL TOFP(UZ)                                                      ! FFF -> PPP SPACE
+CALL TOFP(ROR)                                                     ! FFF -> PPP SPACE
+CALL TOFP(ROP)                                                     ! FFF -> PPP SPACE
+CALL TOFP(OZ)                                                      ! FFF -> PPP SPACE
+CALL TOFP(RBR)                                                     ! FFF -> PPP SPACE
+CALL TOFP(RBP)                                                     ! FFF -> PPP SPACE
+CALL TOFP(BZ)                                                      ! FFF -> PPP SPACE
+CALL ALLOCATE(W,PPP_SPACE); W%LN=0
+
+NI=SIZE(RUR%E,1)
+NJ=SIZE(RUR%E,2)
+NK=SIZE(RUR%E,3)
+
+!> CALCULATING U X OMEGA
+!> NOTE: RUR, RUP, UZ UPDATED WITH FREESTREAM VELOCITY IN PPP SPACE
+!>       ROR, ROP, OZ BECAME U X OMEGA IN PPP SPACE
+CALL VPRODSUB(RUR%E,RUP%E,UZ%E,ROR%E,ROP%E,OZ%E,NI,NJ,NK,RUR%INR)
+
+!> CALCULATING -(U.GRAD)B
+!> NOTE: RUR, RUP, UZ ALREADY CONTAINS FREESTREAM DUE TO VPRODSUB
+W%E = -VDOTPSUB(RUR%E,RUP%E,UZ%E,RBR%E,RBP%E,BZ%E,NI,NJ,NK,RUR%INR,.FALSE.)
+
+!> END DEALIASING
+CALL CHOPSET(-3)
+
+CALL TOFF(W)                                                      ! PPP -> FFF SPACE
+BN = W
+CALL DEALLOCATE(W)
+
+CALL DEALLOCATE( RUR )
+CALL DEALLOCATE( RUP )
+CALL DEALLOCATE( UZ  )
+CALL DEALLOCATE( RBR )
+CALL DEALLOCATE( RBP )
+CALL DEALLOCATE( BZ  )
+
+!> CALCULATING NONLINEAR TERMS PSIN, CHIN
+CALL ALLOCATE(W); W%LN=0
+CALL PROJECT(ROR,ROP,OZ,PSIN,W)                                    ! NOW PSIN = PSI_NONLINEAR AND W = DELSQ(CHI_NONLINEAR)
+CALL IDEL2(W,CHIN)                                                 ! NOW CHIN = CHI_NONLINEAR
+
+CALL DEALLOCATE( ROR )
+CALL DEALLOCATE( ROP )
+CALL DEALLOCATE( OZ  )
+CALL DEALLOCATE( W   )
+
+RETURN
+END SUBROUTINE BOUSSINESQ_NONLIN
+!=======================================================================
+
+SUBROUTINE BOUSSINESQ_LINEAR(PSI,CHI,B,PSIN,CHIN)
+! ======================================================================
+! [USAGE]: 
+! CALCULATE THE LINEAR TERM IN BOUSSINESQ APPROX:
+! P[-2*OMEGA Z_HAT X U - B Z_HAT]
+! [PARAMETERS]:
+! PSI(N) >> TOROIDAL TERM IN A SCALAR-TYPE VARIABLE
+! CHI(N) >> POLOIDAL TERM IN A SCALAR-TYPE VARIABLE
+! B      >> DENSITY TERM IN A SCALAR-TYPE VARIABLE
+! [DEPENDENCIES]:
+! 1. CORIOLIS(~) @ MOD_BOUSSINESQ
+! 2. RTRAN(~) @ MOD_FFT
+! 3. PROJECT(~), IDEL2(~) @ MOD_LEGOPS
+! [UPDATES]:
+! CODED BY JINGE WANG @ OCT 10 2024
+!=======================================================================
+IMPLICIT NONE
+TYPE(SCALAR),INTENT(IN):: PSI,CHI,B
+TYPE(SCALAR),INTENT(INOUT):: PSIN,CHIN
+
+TYPE(SCALAR):: RUR, RUP, UZ
+TYPE(SCALAR):: W
+
+CALL ALLOCATE(RUR)
+CALL ALLOCATE(RUP)
+CALL ALLOCATE(UZ)
+
+CALL CORIOLIS(PSI,CHI,RUR,RUP)
+UZ%E = -B%E
+
+CALL RTRAN(RUR,1)
+CALL RTRAN(RUP,1)
+CALL RTRAN(UZ,1)
+
+CALL ALLOCATE(W)
+W%LN = 0.D0
+CALL PROJECT(RUR, RUP, UZ, PSIN, W) ! PROJECT RETURNS DEL2CHI
+CALL IDEL2(W,CHIN)
+CALL DEALLOCATE(W)
+
+! CALL DELSQH(CHI,BN)
+! CALL ALLOCATE(W)
+! CALL MULXM(BN,W)
+! CALL MULXM(W,BN)
+! BN%E = -BN%E * BSNSQ%BV_FREQ**2
+! CALL DEALLOCATE(W)
+
+CALL DEALLOCATE(RUR)
+CALL DEALLOCATE(RUP)
+CALL DEALLOCATE(UZ)
+
+END SUBROUTINE BOUSSINESQ_LINEAR
+! ======================================================================
+
+SUBROUTINE BOUSSINESQ(PSI,CHI,B,PSIN,CHIN,BN)
+! ======================================================================
+! [USAGE]: 
+! CALCULATE TERMS FOR ADAMS-BASHFORTH
+! [PARAMETERS]:
+! PSI(N) >> TOROIDAL TERM IN A SCALAR-TYPE VARIABLE
+! CHI(N) >> POLOIDAL TERM IN A SCALAR-TYPE VARIABLE
+! B(N)   >> DENSITY TERM IN A SCALAR-TYPE VARIABLE
+! [DEPENDENCIES]:
+! 1. BOUSSINESQ_NONLIN(~) @ MOD_BOUSSINESQ
+! 2. BOUSSINESQ_LINEAR(~) @ MOD_BOUSSINESQ
+! 3. DIVXM2(~) @ MOD_BOUSSINESQ
+! 4. IDELSQH(~) @ MOD_LEGOPS
+! [UPDATES]:
+! CODED BY JINGE WANG @ OCT 10 2024
+!=======================================================================
+IMPLICIT NONE
+TYPE(SCALAR),INTENT(IN):: PSI,CHI,B
+TYPE(SCALAR),INTENT(INOUT):: PSIN,CHIN,BN
+
+TYPE(SCALAR):: PSIN_L, CHIN_L, BN_L
+
+CALL BOUSSINESQ_NONLIN(PSI,CHI,B,PSIN,CHIN,BN)
+
+! DO NOT USE ADAMB-BASHFORTH FOR LINEAR TERM
+IF (.NOT.BSNSQ%ADAMS) RETURN
+
+! USE ADAM-BASHFORTH FOR LINEAR TERM
+! CASE: W/O ROTATION - USE IDELSQH DIRECTLY
+IF (BSNSQ%OMEGA.EQ.0.D0) THEN
+
+  CALL ALLOCATE(BN_L)
+  CALL ALLOCATE(CHIN_L)
+
+  ! BN_L = (1-X)^-2(B)
+  CALL CHOPSET(2)
+  CALL DIVXM2(B,BN_L)
+  CALL CHOPSET(-2)
+  ! CHIN_L = [(1-X)^-2 DEL^2_H]^-1 (1-X)^-2(B)
+  !        = [DEL^2_H]^-1 (1-X)^2 (1-X)^-2(B)
+  !        = [DEL^2_H]^-1 (B)
+  CALL IDELSQH(BN_L,CHIN_L)
+
+  CHIN%E = CHIN%E + CHIN_L%E
+
+  CALL DEALLOCATE(CHIN_L)
+  CALL DEALLOCATE(BN_L)
+
+! CASE: W/ ROTATION - USE CORIOLIS & PROJECT (MORE EXPENSIVE)
+ELSE
+
+  CALL ALLOCATE(PSIN_L)
+  CALL ALLOCATE(CHIN_L)
+  ! CALL ALLOCATE(BN_L)
+  CALL BOUSSINESQ_LINEAR(PSI,CHI,B,PSIN_L,CHIN_L)
+
+  PSIN%E = PSIN%E + PSIN_L%E
+  CHIN%E = CHIN%E + CHIN_L%E
+  ! BN%E = BN%E + BN_L%E
+  ! CALL DEALLOCATE(BN_L)
+
+  CALL DEALLOCATE(PSIN_L)
+  CALL DEALLOCATE(CHIN_L)
+
+ENDIF
+
+END SUBROUTINE BOUSSINESQ
+! ======================================================================
+
+END MODULE

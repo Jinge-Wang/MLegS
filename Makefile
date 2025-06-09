@@ -55,27 +55,12 @@ endif
 
 EXE_F = addperturb_non \
 	addperturb_split \
-	evp_almost_discrete_scan \
-	evp_almost_discrete_0909 \
-	evp_scan_skx \
-	evp_save_m_0919 \
-	evp_scan_0920 \
-	evp_scan_0924 \
-	evp_cltriad \
-	evp_print_q \
-	evp_print_q_parallel \
-	evp_three_k0 \
-	evp_three_k0_scan \
-	evp_three_k0_parallel \
-	evp_three_centre \
+	evp_parametric \
+	evp_print \
 	init \
-	vort8 \
+	vort \
 	vort9 \
-	vort10 \
-	vort11 \
-	vort_test \
-	postproc_vort \
-	test_exchange \
+	postproc_mpi \
 # Program scripts in the f90 folder (ADD/REMOVE THE PROGRAM LISTS HERE)
 # Using 'make [program_name]' will create the executable program file in the bin folder
 # 'make new' will wipe out all obj, mod and exec files and re-compile the first exe_f file

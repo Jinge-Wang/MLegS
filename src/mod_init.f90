@@ -10,6 +10,7 @@ MODULE MOD_INIT ! LEVEL 6 MODULE
       USE MOD_FFT                                                        ! LEVEL 2.5
       USE MOD_LEGOPS                                                     ! LEVEL 3
       USE MOD_LAYOUT                                                     ! LEVEL 3
+      USE MOD_BOUSSINESQ
       USE MOD_MARCH                                                      ! LEVEL 4
       USE MOD_DIAGNOSTICS                                                ! LEVEL 5
       IMPLICIT NONE

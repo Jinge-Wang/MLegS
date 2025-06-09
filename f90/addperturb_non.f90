@@ -4,7 +4,6 @@ program addperturb_name
 ! This program reads in perturbation eigenfunctions which
 ! will be added to the initial base flow. 
 ! This program is modified for MPI use.
-! Required: perturb.input
 ! ======================================================================
    USE OMP_LIB
    USE MPI
@@ -23,12 +22,12 @@ program addperturb_name
 ! ======================================================================
 implicit none
 ! VARIABLE DECLARATION
-character(len=72) :: chifile, psifile    
-type(scalar):: psi,chi,psi0,chi0,w
+character(len=72) :: chifile, psifile, bfile  
+type(scalar):: psi,chi,b,psi0,chi0,b0
 integer:: i,j,jj,err,num,nn,flag
-real(p8):: kk, rp1, ip1, rp2, ip2
+real(p8):: kk, rp1, ip1, rp2, ip2, rp3, ip3
 integer, allocatable:: mp(:), kp(:)
-complex(p8), allocatable:: perturb_psi(:,:), perturb_chi(:,:)
+complex(p8), allocatable:: perturb_psi(:,:), perturb_chi(:,:), perturb_b(:,:)
 complex(p8), allocatable:: scale(:)
 ! MPI-SPECIFIC DECLARATION
 integer:: mm_local, kk_local
@@ -55,29 +54,28 @@ CALL MPI_BCAST(FILENAME,200,MPI_CHARACTER,0,MPI_COMM_WORLD,IERR)
 10 FORMAT(A200)
 
 ! ALLOCATE SCALARS
-call allocate(psi)
-call allocate(chi)
-psi%e = 0.d0
-chi%e = 0.d0
-psi%LN = 0.d0
-chi%LN = 0.d0
+call allocate(psi); psi%e = 0.d0; psi%ln = 0.d0;
+call allocate(chi); chi%e = 0.d0; chi%ln = 0.d0;
+call allocate(  b);   b%e = 0.d0;   b%ln = 0.d0;
 
 ! READ IN VALUES
 open(10,FILE=TRIM(ADJUSTL(FILENAME))//".input",STATUS='OLD',ACTION='READ',IOSTAT=err)
-! open(10,FILE='new_perturb.input',STATUS='OLD',ACTION='READ',IOSTAT=err)
 if (err.ne.0) then
    print *, 'ERROR: addperturb -- Could not open file: ',TRIM(ADJUSTL(FILENAME))//".input"
    STOP
 end if
 read(10,*) num
-allocate(perturb_psi(NRchop,num),perturb_chi(NRchop,num),&
+allocate(perturb_psi(NRchop,num),perturb_chi(NRchop,num),perturb_b(NRchop,num), &
    & mp(num),kp(num),scale(num),STAT=err)
-perturb_psi = 0.0_p8
-perturb_chi = 0.0_p8
+perturb_psi = 0.0_p8; perturb_chi = 0.0_p8; perturb_b = 0.0_p8
+
+! READ IN: SCALE FACTORS
 do j=1,num
    read(10,*) rp1, ip1
    scale(j) = cmplx(rp1,ip1,p8)
 end do
+
+! READ IN: EA MODE (ndim, m, ak)
 do j=1,num
    read(10,*)
    read(10,*)
@@ -85,6 +83,7 @@ do j=1,num
    do jj=1,8
       read(10,*)
    end do
+   ! obtain k#
    kk = zlen/2.0/pi*kk
    kp(j) = nint(kk)
    if (MPI_RANK.EQ.0) THEN
@@ -116,26 +115,33 @@ do j=1,num
 
    !if (kp(j)<=0) kp(j)=kp(j)+nxchopdim
    if (kp(j)<=0) kp(j)=kp(j)+2*NXCHOP-1
+
+   ! READ IN: PERTURBATION AMPLITUDES
    do i=1,nn
       if (i<=NRchop) then
-         read(10,*) rp1, ip1, rp2, ip2
+         read(10,*) rp1, ip1, rp2, ip2, rp3, ip3
    perturb_psi(i,j) = cmplx(rp1,ip1,p8)
    perturb_chi(i,j) = cmplx(rp2,ip2,p8)
+   perturb_b(i,j) = cmplx(rp3,ip3,p8)
       else
          read(10,*)
       end if
    end do
+   ! re-scale perturbation amplitudes
    perturb_psi(:,j) = perturb_psi(:,j)*scale(j)
    perturb_chi(:,j) = perturb_chi(:,j)*scale(j)
+   perturb_b(:,j) = perturb_b(:,j)*scale(j)
+   ! for negative m, take complex conjugate
    if (flag==1) then
       perturb_psi(:,j) = conjg(perturb_psi(:,j))
       perturb_chi(:,j) = conjg(perturb_chi(:,j))
+      perturb_b(:,j) = conjg(perturb_b(:,j))
    end if
 end do
 close(10)
 
 ! ADDING VALUES TO SCALARS
-psi%e = 0.d0; chi%e = 0.d0
+psi%e = 0.d0; chi%e = 0.d0; b%e = 0.d0
 do j=1,num
 mm_local = mp(j)-psi%inth
 kk_local = kp(j)-psi%inx
@@ -147,6 +153,8 @@ IF (0.lt.mm_local .and. size(psi%e,2).ge.mm_local) THEN
             & perturb_psi(:NRchop,j)
       chi%e(:NRchop,mm_local,kk_local) = chi%e(:NRchop,mm_local,kk_local) + &
             & perturb_chi(:NRchop,j)
+      b%e(:NRchop,mm_local,kk_local) = b%e(:NRchop,mm_local,kk_local) + &
+            & perturb_b(:NRchop,j)
       ! if (sum(abs(chi%e(:NRchop,mm_local,kk_local))).eq.0) write(*,*) 'zero:',m(mp(j)),ak(mp(j),kp(j))
    ENDIF
 
@@ -159,20 +167,20 @@ IF (0.lt.mm_local .and. size(psi%e,2).ge.mm_local) THEN
                & conjg(perturb_psi(:NRchop,j))
          chi%e(:NRchop,mm_local,kk_local) = chi%e(:NRchop,mm_local,kk_local) + &
                & conjg(perturb_chi(:NRchop,j))
+         b%e(:NRchop,mm_local,kk_local) = b%e(:NRchop,mm_local,kk_local) + &
+               & conjg(perturb_b(:NRchop,j))
       ENDIF
    ENDIF 
 ENDIF
 end do
 where(abs(psi%e)<1.0e-24) psi%e=0.0_p8
 where(abs(chi%e)<1.0e-24) chi%e=0.0_p8
+where(abs(  b%e)<1.0e-24)   b%e=0.0_p8
 
 ! SAVING SCALARS
-call allocate(psi0)
-call allocate(chi0)
-psi0%e = 0
-chi0%e = 0
-psi0%LN = 0
-chi0%LN = 0
+call allocate(psi0); psi0%e = 0; psi0%ln = 0.d0
+call allocate(chi0); chi0%e = 0; chi0%ln = 0.d0
+call allocate(  b0);   b0%e = 0;   b0%ln = 0.d0
 IF (MPI_RANK .EQ. 0) THEN
    WRITE(*,*) 'Q-VORTEX?[T/F]:'
    READ(*,*) save_q
@@ -181,6 +189,7 @@ CALL MPI_BCAST(save_q,1,MPI_LOGICAL,0,MPI_COMM_WORLD,IERR)
 IF (save_q) THEN
    call mload(TRIM(ADJUSTL(FILES%SAVEDIR))//files%psi0,psi0)
    call mload(TRIM(ADJUSTL(FILES%SAVEDIR))//files%chi0,chi0)
+   call mload(TRIM(ADJUSTL(FILES%SAVEDIR))//files%b0,b0)
 ELSE
    IF (MPI_RANK .EQ. 0) THEN
       WRITE(*,*) 'CORRECTION?[T/F]:'
@@ -190,12 +199,15 @@ ELSE
    IF (save_q) THEN
       call mload(TRIM(ADJUSTL(FILES%SAVEDIR))//"new_perturb_psi.dat",psi0)
       call mload(TRIM(ADJUSTL(FILES%SAVEDIR))//"new_perturb_chi.dat",chi0)
+      call mload(TRIM(ADJUSTL(FILES%SAVEDIR))//"new_perturb_b.dat",b0)
    ENDIF
 ENDIF
 psi0%e = psi%e + psi0%e ! add to psi0, so that psi0%ln is preserved
 chi0%e = chi%e + chi0%e 
+  b0%e =   b%e +   b0%e
 call CHOPDO(psi0)
 call CHOPDO(chi0)
+call CHOPDO(b0)
 
 ! IF (MPI_RANK .EQ. 0) THEN
 !    WRITE(*,*) 'psi/chi filename: '
@@ -204,13 +216,16 @@ call CHOPDO(chi0)
 ! CALL MPI_BCAST(FILENAME,200,MPI_CHARACTER,0,MPI_COMM_WORLD,IERR)
 call msave(psi0, TRIM(ADJUSTL(FILES%SAVEDIR))//TRIM(ADJUSTL(FILENAME))//"_psi.dat")
 call msave(chi0, TRIM(ADJUSTL(FILES%SAVEDIR))//TRIM(ADJUSTL(FILENAME))//"_chi.dat")
+call msave(  b0, TRIM(ADJUSTL(FILES%SAVEDIR))//TRIM(ADJUSTL(FILENAME))//"_b.dat")
 
 ! FINALIZATION
 call deallocate(psi)
 call deallocate(chi)
+call deallocate(  b)
 call deallocate(psi0)
 call deallocate(chi0)
-deallocate(perturb_psi, perturb_chi, scale, mp, kp)
+call deallocate(  b0)
+deallocate(perturb_psi, perturb_chi, perturb_b, scale, mp, kp)
 
 ! MPI-FINALIZATION
 IF (MPI_RANK.eq.0) THEN
