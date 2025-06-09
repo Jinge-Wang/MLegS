@@ -1,0 +1,82 @@
+program test_init
+! PROGRAM TO ASSEMBLE LOCAL ARRAYS INTO GLOBAL ARRAYS
+    USE OMP_LIB
+    USE MPI
+    USE MOD_MISC                                                       ! LEVEL 0
+    USE MOD_EIG                                                        ! LEVEL 1
+    !USE MOD_LIN_LEGENDRE                                               ! LEVEL 1
+    USE MOD_SCALAR3                                                    ! LEVEL 2
+    USE MOD_FFT
+    USE MOD_LEGOPS
+    USE MOD_INIT
+    !USE MOD_LAYOUT
+    USE MOD_MARCH
+    USE MOD_DIAGNOSTICS
+implicit none
+
+! INPUT:
+TYPE(SCALAR):: A,B,C
+! OUTPUT:
+COMPLEX(P8),DIMENSION(:,:,:),ALLOCATABLE:: GLOBAL_ARRAY
+CHARACTER(LEN=72) :: A_GLB_FILENAME
+
+! TEMPORARY:
+INTEGER:: N1, N2, N3, I, J, K, KK
+REAL:: RANDNUM_RE, RANDNUM_IM
+real(p8), allocatable, dimension(:,:):: EMK, EMK0
+
+CALL MPI_INIT_THREAD(MPI_THREAD_SERIALIZED,MPI_THREAD_MODE,IERR)
+IF (MPI_THREAD_MODE.LT.MPI_THREAD_SERIALIZED) THEN
+   WRITE(*,*) 'The threading support is lesser than that demanded.'
+   CALL MPI_ABORT(MPI_COMM_WORLD,1,IERR)
+ENDIF
+CALL MPI_COMM_RANK(MPI_COMM_WORLD, MPI_RANK, IERR)
+
+IF (MPI_RANK.EQ.0) WRITE(*,*) 'STARTED'
+
+CALL READCOM('NOECHO')
+CALL READIN(5)
+CALL LEGINIT()
+
+! CALL ALLOCATE(A,FFF_SPACE)
+CALL ALLOCATE(A,FFF_SPACE)
+
+A%E = 0.D0
+CALL MSAVE(A,TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSI0)
+CALL DEALLOCATE(A)
+
+
+! CALL ALLOCATE(B,FFF_SPACE)
+
+! DO I = 1,SIZE(A%E,1)
+!     DO J = 1,SIZE(A%E,2)
+!         DO K = 1,SIZE(A%E,3)
+!             A%E(I,J,K) = I+(10**-3)*J+(10**-6)*K
+!         ENDDO
+!     ENDDO
+! ENDDO
+! B = A
+
+! CALL TOFP(A)
+! CALL TOFF(A)
+
+! allocate(EMK(NTCHOP,NXCHOPDIM))
+! allocate(EMK0(NTCHOP,NXCHOPDIM))
+
+! EMK = ENERGY_SPEC_MODIFIED(A,A)
+! EMK0 = ENERGY_SPEC_MODIFIED(B,B)
+
+! 788 FORMAT(*(E23.15))
+! IF (MPI_RANK.EQ.0) THEN
+!     WRITE(*, 788) (SUM(EMK(:,KK)),KK=1,NXCHOPDIM)
+!     WRITE(*,*) '---'    
+!     WRITE(*, 788) (SUM(EMK0(:,KK)),KK=1,NXCHOPDIM)
+! ENDIF              
+
+! DEALLOCATE(EMK,EMK0)
+! CALL DEALLOCATE(A)
+! CALL DEALLOCATE(B)
+
+CALL MPI_FINALIZE(IERR)
+
+end program test_init

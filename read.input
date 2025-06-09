@@ -1,0 +1,198 @@
+DIMENSION 
+#     NR     NTH      NX ----------------------------------(POWER OF 2)
+     370     192     576
+#    200     128     128
+# ---------------------------------------------------------------------
+CHOPS
+# NRCHOP  NTCHOP  NXCHOP --(NXCHOP<=NX/2 UNLESS NXCHOP=NX=1,NRCHOP<=NR)
+     350     128     192
+#    190      64      64
+# ---------------------------------------------------------------------
+ELL
+#    ELL -----------------------------------------------(MAP PARAMETER)
+      3.
+# ---------------------------------------------------------------------
+ZLEN
+#   ZLEN ------------------------(PERIOD LENGTH IN THE AXIAL DIRECTION)
+# 2.77916212135
+# 3.4906585039886591538473815369772
+# 6.283185307179586476925286766559
+# 20.9439510239319549230842892218633
+# 6.9813170079773183076947630739545
+# 10.471975511965977461542144610931
+# 31.415926535897932384626433832795
+  62.83185307179586476925286766559
+# ---------------------------------------------------------------------
+MINC
+#   MINC ----------(# OF SYMMETRY OCCURRING IN THE AXIMUTHAL DIRECTION)
+       1
+# ---------------------------------------------------------------------
+MKLINK
+# MKLINK --------(1 OR -1 IF M AND K ARE LINKED TOGETHER. DEFAULT IS 0)
+       0
+# ---------------------------------------------------------------------
+VORTEXPAIR
+#      N ------------------------------------------(NUMBER OF VORTICES)
+       1
+# ---------------------------------------------------------------------
+#      X       Y       Q       H       B -(X, Y, Q, B AND H FOR VORTEX)
+       0.      0.      1.     0.4      1.
+# ---------------------------------------------------------------------
+VORTEXPAIR_NOISE
+#  NOISE -----------------(1: RANDOM NOISE CREATED INTO INITIAL VORTEX)
+       0
+# ---------------------------------------------------------------------
+VORTEXPAIR_CROW
+#     DX      DY      DP       K -(DELTAX, DELTAY, DELTAPHASE & WAVE #)
+      0.      0.      0.       1
+# ---------------------------------------------------------------------
+VORTEXPAIR_SECTION
+#      R      DR      RP      RK ---(CORER, DELTAR, DELTAPHASE & WAVE#)
+      1.      0.      0.       1
+# ---------------------------------------------------------------------
+DT
+#     DT   LIMIT ------------------------------------(DELTAT & ENDTIME)
+     0.002 300.0
+# ---------------------------------------------------------------------
+TIME_INTEG
+# SCHEME -----------------(TIME ADVANCEMENT SCHEME !!CURRENTLY DUMMY!!)
+       1
+# ---------------------------------------------------------------------
+VISCOSITY
+#     SW      NU     NUP       P --(SWITCH, VISCOSITY, HYPERV, HELMPOW)
+       1    0.00001  0.00000000001    6
+#      2    0.00001  0.00000000001    6
+#      3    0.00001  0.0000000004    6
+#      0    0.00001  0.000000001    6
+# ---------------------------------------------------------------------
+NUP_ADJUST
+#  ADJSW  ADJINT -(HYPERV ADJUSTMENT SWITCH & FOR EVERY 'ADJINT' STEPS)
+       0       1
+# ---------------------------------------------------------------------
+FREESTREAM
+#     SW      UX      UY      UZ     INT -(SWITCH, UX, UY, UZ, # STEPS)
+       0      0.      0.      0.       1
+#      1      0.      0.      0.08990353577     1
+# ---------------------------------------------------------------------
+STRAIN
+# STRAIN ---------------------------------------(NONLINEAR STRAIN TERM)
+      0.
+# ---------------------------------------------------------------------
+REMOVE
+#     SW     INT -------(VORTEX REMOVAL SWITCH & FOR EVERY 'INT' STEPS)
+       0       1
+# ---------------------------------------------------------------------
+SAVEDIR
+#      DIRECTORY -------------(DIRECTOR WHERE ALL DAT FILES ARE STORED)
+       ./output/
+PSI0
+#         PSI0_F ---------(FILENAME WHERE PSI0 IS STORED, INITIAL DATA)
+        psi0.dat
+# ---------------------------------------------------------------------
+CHI0
+#         CHI0_F ---------(FILENAME WHERE CHI0 IS STORED, INITIAL DATA)
+        chi0.dat
+# ---------------------------------------------------------------------
+PSII
+#         PSII_F ---(FILENAME WHERE PSII IS STORED, POSTPROCESSED DATA)
+        psi0.dat
+# ---------------------------------------------------------------------
+CHII
+#         CHII_F ---(FILENAME WHERE CHII IS STORED, POSTPROCESSED DATA)
+        chi0.dat
+# ---------------------------------------------------------------------
+OUTPUTS
+#     NE --------------------------(NUMBER OF SNAPSHOTS OF PSI AND CHI)
+      60
+# ---------------------------------------------------------------------
+#      T          PSIX_F          CHIX_F ---(SNAPTIME, PSI(T) & CHI(T))
+# (NE LINES. THE LAST SNAPSHOT TIME DETERMINES THE PROGRAM TERMINATION)
+        5.0     psi05.dat        chi05.dat      
+       10.0     psi10.dat        chi10.dat
+       15.0     psi15.dat        chi15.dat            
+       20.0     psi20.dat        chi20.dat 
+       25.0     psi25.dat        chi25.dat      
+       30.0     psi30.dat        chi30.dat
+       35.0     psi35.dat        chi35.dat      
+       40.0     psi40.dat        chi40.dat
+       45.0     psi45.dat        chi45.dat      
+       50.0     psi50.dat        chi50.dat
+       55.0     psi55.dat        chi55.dat
+       60.0     psi60.dat        chi60.dat   
+       65.0     psi65.dat        chi65.dat   
+       70.0     psi70.dat        chi70.dat   
+       75.0     psi75.dat        chi75.dat   
+       80.0     psi80.dat        chi80.dat   
+       85.0     psi85.dat        chi85.dat   
+       90.0     psi90.dat        chi90.dat   
+       95.0     psi95.dat        chi95.dat   
+      100.0    psi100.dat       chi100.dat   
+      105.0    psi105.dat       chi105.dat 
+      110.0    psi110.dat       chi110.dat 
+      115.0    psi115.dat       chi115.dat 
+      120.0    psi120.dat       chi120.dat 
+      125.0    psi125.dat       chi125.dat 
+      130.0    psi130.dat       chi130.dat 
+      135.0    psi135.dat       chi135.dat 
+      140.0    psi140.dat       chi140.dat 
+      145.0    psi145.dat       chi145.dat 
+      150.0    psi150.dat       chi150.dat 
+      155.0    psi155.dat       chi155.dat 
+      160.0    psi160.dat       chi160.dat 
+      165.0    psi165.dat       chi165.dat 
+      170.0    psi170.dat       chi170.dat 
+      175.0    psi175.dat       chi175.dat 
+      180.0    psi180.dat       chi180.dat 
+      185.0    psi185.dat       chi185.dat 
+      190.0    psi190.dat       chi190.dat 
+      195.0    psi195.dat       chi195.dat 
+      200.0    psi200.dat       chi200.dat 
+      205.0    psi205.dat       chi205.dat 
+      210.0    psi210.dat       chi210.dat 
+      215.0    psi215.dat       chi215.dat 
+      220.0    psi220.dat       chi220.dat 
+      225.0    psi225.dat       chi225.dat 
+      230.0    psi230.dat       chi230.dat 
+      235.0    psi235.dat       chi235.dat 
+      240.0    psi240.dat       chi240.dat 
+      245.0    psi245.dat       chi245.dat 
+      250.0    psi250.dat       chi250.dat 
+      255.0    psi255.dat       chi255.dat 
+      260.0    psi260.dat       chi260.dat 
+      265.0    psi265.dat       chi265.dat 
+      270.0    psi270.dat       chi270.dat 
+      275.0    psi275.dat       chi275.dat 
+      280.0    psi280.dat       chi280.dat 
+      285.0    psi285.dat       chi285.dat 
+      290.0    psi290.dat       chi290.dat 
+      295.0    psi295.dat       chi295.dat 
+      300.0    psi300.dat       chi300.dat 
+# ---------------------------------------------------------------------
+DIAGNOST
+#    IT1     IT2 ----(PERFORM DIAGNOSIS FOR EVERY 'IT1' OR 'IT2' STEPS)
+#                             (!! IT2 IS CURRENTLY A DUMMY VARIABLE !!)
+     100      40
+# ---------------------------------------------------------------------
+LINEAR
+#     MM      KK ------------------(LINEAR TERMS !! CURRENTLY DUMMY !!)
+       1       1
+# ---------------------------------------------------------------------
+MONITOR_MK
+#    NUM --------------------------------- (NUMBER OF MONITORING MODES)
+       4
+# ---------------------------------------------------------------------
+#     MM      KK --------(AZIMUTHAL & AXIAL WAVENUMBER TO BE MONITORED)
+#     MM = 0,1,2,...; KK = 0,1,2,...;
+       2       -4
+       3       -7
+       5       -11
+       0       0
+# ---------------------------------------------------------------------
+#  START  INTERV -----(MONITORING START & MONITORING INTERVAL IN STEPS)
+      0.    100.
+# ---------------------------------------------------------------------
+POSTPROCESS
+#  START  FINISH     JOB   SLICEI --(STARTINT,FINISHINT,JOBTYPE,SLICEI)
+       1      2       1       999
+# ---------------------------------------------------------------------
+END

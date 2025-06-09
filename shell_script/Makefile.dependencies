@@ -1,0 +1,55 @@
+# This file is generated automatically. DO NOT EDIT!
+
+$(OBJ_DIR)/mod_misc.o : 
+
+$(OBJ_DIR)/mod_bandmat.o :  \
+	$(OBJ_DIR)/mod_misc.o
+
+$(OBJ_DIR)/mod_eig.o :  \
+	$(OBJ_DIR)/mod_misc.o
+
+$(OBJ_DIR)/mod_fd.o :  \
+	$(OBJ_DIR)/mod_misc.o
+
+$(OBJ_DIR)/mod_lin_legendre.o :  \
+	$(OBJ_DIR)/mod_misc.o
+
+$(OBJ_DIR)/mod_scalar3.o :  \
+	$(OBJ_DIR)/mod_misc.o \
+	$(OBJ_DIR)/mod_eig.o \
+	$(OBJ_DIR)/mod_lin_legendre.o
+
+$(OBJ_DIR)/mod_layout.o :  \
+	$(OBJ_DIR)/mod_misc.o \
+	$(OBJ_DIR)/mod_eig.o \
+	$(OBJ_DIR)/mod_scalar3.o
+
+$(OBJ_DIR)/mod_legops.o :  \
+	$(OBJ_DIR)/mod_misc.o \
+	$(OBJ_DIR)/mod_bandmat.o \
+	$(OBJ_DIR)/mod_eig.o \
+	$(OBJ_DIR)/mod_lin_legendre.o \
+	$(OBJ_DIR)/mod_scalar3.o
+
+$(OBJ_DIR)/mod_march.o :  \
+	$(OBJ_DIR)/mod_misc.o \
+	$(OBJ_DIR)/mod_eig.o \
+	$(OBJ_DIR)/mod_fd.o \
+	$(OBJ_DIR)/mod_scalar3.o \
+	$(OBJ_DIR)/mod_legops.o
+
+$(OBJ_DIR)/mod_diagnostics.o :  \
+	$(OBJ_DIR)/mod_misc.o \
+	$(OBJ_DIR)/mod_eig.o \
+	$(OBJ_DIR)/mod_lin_legendre.o \
+	$(OBJ_DIR)/mod_scalar3.o \
+	$(OBJ_DIR)/mod_legops.o \
+	$(OBJ_DIR)/mod_march.o
+
+$(OBJ_DIR)/mod_init.o :  \
+	$(OBJ_DIR)/mod_misc.o \
+	$(OBJ_DIR)/mod_scalar3.o \
+	$(OBJ_DIR)/mod_layout.o \
+	$(OBJ_DIR)/mod_legops.o \
+	$(OBJ_DIR)/mod_march.o \
+	$(OBJ_DIR)/mod_diagnostics.o

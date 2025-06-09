@@ -1,0 +1,57 @@
+Notes about log term:
+
+1. Tatsu computes the logterm only when taking an r-derivative because it
+is convenient in that form. To create a q-vortex: He first creates an
+omegaZ field and then inverts the del-sq-h operator to get psi. The
+del-sq-h contains the r-derivative, and this is convenient to calculate
+the psi log term.  E.g. 1 q-vortex, regardless of location, psi log-term =
+-0.5; 2 q-vortices of same sign: -1.0; 2-vortices of opposite sign:
+log-term = 0.
+
+2. The chi-log term, and the entire chi field is zero, since we are
+looking at 2D Gaussian vortices only.
+
+3. Tatsu never needs to compute a psi, or chi field in Physical*3 space.  
+He computes the non-linear term by first computing velocity and vorticity
+in Fourier*3 space and then multiplying them in Physical*3 space.
+
+4. I have tried to bring a psi/chi scalar field into Physical*3 space, but
+the transform does not allow me to do so unless the log term is zero. So
+if I set the log term to zero, I am able to transform the field into
+Physical*3 space and visualize it.
+
+5. However setting the log term to zero does not seem correct. Here is
+why:
+
+a. Take a simple vortex, created by Tatsu; take the psi/chi field to
+Physical*3 space by setting the log-term to zero and get it back to
+Fourier*3 space. Compare the initial and final energies: they are
+completely different (nearly half of each other).
+
+6. Take a simple vortex created by Tatsu and shift it by my interpolation
+routine by "zero" (i.e. keep it in the same place); Set the log-term to to
+zero: I get completely different energies, the same energies as case 5(a)
+
+7. Take case (6) and set the log term of the interpolated vortex to that
+of Tatsu's original vortex: I get the same exactly matching energies.
+
+8. Now look at physical plots of psi ( in the phi=0 - phi=pi, plane for
+all r's and one z ). All plots of Tatsu's original vortex have been
+created by setting the log-term to zero. In this case:
+
+a. Plots of the psi function match those of my interpolated function
+without any shift perfectly
+
+b. Plots of my interpolated function shifted by 'x' match the original psi
+function perfectly in terms of shape (Overlapping the pictures with one of
+them translated, gives perfect agreement when held against the sunlight).
+
+c. Most surprisingly: When Tatsu creates an off center vortex his
+psi-function is not a translated version of his centered vortex but is a
+different function completely. If I compute the difference between his
+translated vortex function and his original function translated to match
+the vortex center, I do not get a logarithmic function. Also, for a single
+vortex the difference is positive for phi=0 and negative for phi=pi,
+indicating that the difference is a function of the azimuthal angle. This
+probably means that, in his code, translating the scalar psi piece does
+not mean a translation of vorticity.
