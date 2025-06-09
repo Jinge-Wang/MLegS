@@ -1,4 +1,0 @@
-#!/bin/bash
-
-ROOT=$(dirname $(readlink -f "$0"))/..
-mpirun -np 1 gdb $@ : -np 15 $ROOT/bin/init_exec

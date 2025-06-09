@@ -1,8 +1,0 @@
-{
-    "C_Cpp.intelliSenseEngineFallback": "Enabled",
-    "C_Cpp.files.exclude": {
-        "**/.vscode": true,
-        "**/archive":true
-    },
-    "editor.fontSize": 14
-}
