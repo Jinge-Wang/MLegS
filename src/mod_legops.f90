@@ -345,6 +345,7 @@ DO MM=1,SIZE(A%E,2) !NTCHOP
   NN = NRCHOPS(MM+A%INTH)
   XP(:NN,:) = BAND_LOGLEG_XP(NN,M(MM+A%INTH),TFM%LOGNORM(:,MM+A%INTH))
   CALL LUB(XP(:NN,:),2)
+  ! TODO: Simply have do kk = 1, size(a%e,3) instead of 1-a%inx
   DO KK=1-A%INX,SIZE(A%E,3) !1,SIZE(A%E,3) !NXCHOPDIM
     ! XP(:NN,:) = BAND_LOGLEG_XP(NN,M(MM+A%INTH),TFM%LOGNORM(:,MM+A%INTH))
     ! CALL LUB(XP(:NN,:),2)
@@ -472,6 +473,7 @@ DO MM=1,SIZE(A%E,2) !NTCHOP
   NN = NRCHOPS(MM+A%INTH)
   XM(:NN,:) = BAND_LOGLEG_XM(NN,M(MM+A%INTH),TFM%LOGNORM(:,MM+A%INTH))
   CALL LUB(XM(:NN,:),2)
+  !TODO: Simply have do kk = 1, size(a%e,3) instead of 1-a%inx
   DO KK=1-A%INX,SIZE(A%E,3) !NXCHOPDIM
     !XM(:NN,:) = BAND_LOGLEG_XM(NN,M(MM+A%INTH),TFM%LOGNORM(:,MM+A%INTH))
     !CALL LUB(XM(:NN,:),2)
@@ -2290,114 +2292,7 @@ DEALLOCATE( BE,BO )
 
 RETURN
 END SUBROUTINE OEMUL
-! !=======================================================================
-! SUBROUTINE EOMUL2(A,B,C)
-! !=======================================================================
-! ! [USAGE]: 
-! ! COMPUTE C(:NI,:NK)=A(:NI,:NJ)*B(:NJ,:NK) WHERE A HAS PATTERN, I.E.,
-! !    A(2*I  :J)= A(2*I  :NJ-J+1) AND 
-! !    A(2*I-1:J)=-A(2*I-1:NI-J+1).
-! ! ONLY HALF OF A SHOULD BE GIVEN ON INPUT.
-! ! [PARAMETERS]:
-! ! A >> A SPECIFIC-PATTERN (SEE USAGE) MATRIX OF THE DIMENSION OF NI X NJ
-! ! B >> A MATRIX OF THE DIMENSION OF NJ X NK
-! ! C >> ON EXIT, RETURNS MATRIX MULTIPLICATION OF A*B
-! ! [DEPENDENCIES]:
-! ! 1. OPERATOR(.MUL.) @ MOD_EIG
-! ! [UPDATES]:
-! ! RE-CODED BY SANGJOON LEE @ NOV 19 2020
-! !=======================================================================
-! REAL(P8),DIMENSION(:,:):: A
-! COMPLEX(P8),DIMENSION(:,:):: B,C
-
-! COMPLEX(P8),DIMENSION(:,:),ALLOCATABLE:: BE,BO
-! INTEGER:: NI,NJ,NK,NJH,II
-
-! NI  = SIZE(A,1)
-! NJH = SIZE(A,2)
-! NJ  = SIZE(B,1)
-! NK  = SIZE(B,2)
-
-! IF(NJH*2 .NE. NJ) THEN
-!   IF (MPI_RANK.EQ.0) THEN
-!     WRITE(*,*) 'EOMUL: SIZE MISMATCH.'
-!     WRITE(*,*) 'NJ=',NJ,' NJH=',NJH
-!   ENDIF
-!   STOP
-! ENDIF
-
-! ALLOCATE( BE(NJH,NK) )
-! ALLOCATE( BO(NJH,NK) )
-
-! BE = ( B(1:NJH,:) + B(NJ:NJH+1:-1,:) )
-! BO = ( B(1:NJH,:) - B(NJ:NJH+1:-1,:) )
-
-! DO II = 1,NK
-!   C(1::2,II:II)= A(1::2,:) .MUL. BE(:,II:II)
-
-!   IF (NI .GT. 1) THEN
-!     C(2::2,II:II)= A(2::2,:) .MUL. BO(:,II:II)
-!   ENDIF
-
-! ENDDO
-
-! DEALLOCATE( BE,BO )
-
-! RETURN
-! END SUBROUTINE EOMUL2
-! !=======================================================================
-! SUBROUTINE OEMUL2(A,B,C)
-! !=======================================================================
-! ! [USAGE]: 
-! ! COMPUTE C(:NI,:NK)=A(:NI,:NJ)*B(:NJ,:NK) WHERE A HAS PATTERN, I.E.,
-! !    A(2*I  :J)=-A(2*I  :NJ-J+1) AND 
-! !    A(2*I-1:J)= A(2*I-1:NI-J+1).
-! ! ONLY HALF OF A SHOULD BE GIVEN ON INPUT.
-! ! [PARAMETERS]:
-! ! A >> A SPECIFIC-PATTERN (SEE USAGE) MATRIX OF THE DIMENSION OF NI X NJ
-! ! B >> A MATRIX OF THE DIMENSION OF NJ X NK
-! ! C >> ON EXIT, RETURNS MATRIX MULTIPLICATION OF A*B
-! ! [DEPENDENCIES]:
-! ! 1. OPERATOR(.MUL.) @ MOD_EIG
-! ! [UPDATES]:
-! ! RE-CODED BY SANGJOON LEE @ NOV 19 2020
-! !=======================================================================
-! REAL(P8),DIMENSION(:,:):: A
-! COMPLEX(P8),DIMENSION(:,:):: B,C
-
-! COMPLEX(P8),DIMENSION(:,:),ALLOCATABLE:: BE,BO
-! INTEGER:: NI,NJ,NK,NJH,II
-
-! NI  = SIZE(A,1)
-! NJH = SIZE(A,2)
-! NJ  = SIZE(B,1)
-! NK  = SIZE(B,2)
-
-! IF(NJH*2 .NE. NJ) THEN
-!   IF (MPI_RANK.EQ.0) THEN
-!     WRITE(*,*) 'OEMUL: SIZE MISMATCH.'
-!     WRITE(*,*) 'NJ=',NJ,' NJH=',NJH
-!   ENDIF
-!   STOP
-! ENDIF
-
-! ALLOCATE( BE(NJH,NK) )
-! ALLOCATE( BO(NJH,NK) )
-
-! BE = ( B(1:NJH,:) + B(NJ:NJH+1:-1,:) )
-! BO = ( B(1:NJH,:) - B(NJ:NJH+1:-1,:) )
-
-! DO II=1,NK
-!   C(1::2,II:II)= A(1::2,:) .MUL. BO(:,II:II)
-
-!   C(2::2,II:II)= A(2::2,:) .MUL. BE(:,II:II)
-! ENDDO
-
-! DEALLOCATE( BE,BO )
-
-! RETURN
-! END SUBROUTINE OEMUL2
-! !=======================================================================
+!=======================================================================
 
 SUBROUTINE NONLIN(PSI,CHI,PSIN,CHIN)
 !=======================================================================
