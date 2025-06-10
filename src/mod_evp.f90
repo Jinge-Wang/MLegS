@@ -111,8 +111,6 @@ SUBROUTINE DIVXP_MK(B,A)
 !=======================================================================
 ! [USAGE]: 
 ! (1+X)^(-1)* (OR (R^2+ELL^2)/2R^2*) OPERATOR.
-! [UPDATES]:
-! WRITTEN BY JINGE WANG @ OCT 16 2024
 !=======================================================================
 COMPLEX(P8),DIMENSION(:),INTENT(IN):: B
 COMPLEX(P8),DIMENSION(:),INTENT(INOUT):: A
@@ -146,8 +144,6 @@ SUBROUTINE MULXM2_MK(A,B)
 ! ======================================================================
 ! [USAGE]: 
 ! [(1-X)^2]* OPERATOR.
-! [UPDATES]:
-! WRITTEN BY JINGE WANG @ OCT 15 2024
 !=======================================================================
 COMPLEX(P8),DIMENSION(:),INTENT(IN):: A
 COMPLEX(P8),DIMENSION(:),INTENT(INOUT):: B
@@ -171,8 +167,6 @@ SUBROUTINE MULXMDIVXP_MK(A,B,SP)
 !=======================================================================
 ! [USAGE]: 
 ! [(1-X)/(1+X)]* (OR [L^2/R^2]*) OPERATOR.
-! [UPDATES]:
-! WRITTEN BY JINGE WANG @ OCT 16 2024
 !=======================================================================
 COMPLEX(P8),DIMENSION(:),INTENT(IN):: A
 COMPLEX(P8),DIMENSION(:),INTENT(INOUT):: B
@@ -877,8 +871,6 @@ SUBROUTINE DIRDIV0_MK(NSIZE,BU,BD)
 !=======================================================================
 ! [USAGE]: 
 ! CALCULATE (U0.GRAD)B WHERE U0 IS THE BASEFLOW WITH M = 0, K = 0
-! [UPDATES]:
-! CODED BY JINGE WANG @ OCT 10 2024
 !=======================================================================
 IMPLICIT NONE
 COMPLEX(P8),DIMENSION(NSIZE),INTENT(IN):: BU
@@ -944,8 +936,6 @@ SUBROUTINE BSNSQ_NONLIN_MK(NSIZE,PSIU,CHIU,PSID,DEL2CHID,BU,BD)
 ! CALCULATE THE TERM:
 ! U: U_0 X W + U X W_0
 ! B: -(U_0.GRAD)B + U_z * N^2
-! [UPDATES]:
-! CODED BY JINGE WANG @ OCT 10 2024
 !=======================================================================
 IMPLICIT NONE
 COMPLEX(P8),DIMENSION(NSIZE),INTENT(IN):: PSIU,CHIU
@@ -1021,8 +1011,6 @@ SUBROUTINE BSNSQ_LINEAR_MK(NSIZE,PSIU,CHIU,BU,PSID,DEL2CHID)
 ! [USAGE]: 
 ! CALCUALTE THE TERM:
 ! (-2*OMEGA)(e_z X U) - B e_z
-! [UPDATES]:
-! CODED BY JINGE WANG @ OCT 10 2024
 !=======================================================================
 IMPLICIT NONE
 COMPLEX(P8),DIMENSION(NSIZE),INTENT(IN):: PSIU,CHIU,BU
@@ -1104,8 +1092,6 @@ SUBROUTINE BSNSQ_MK(NSIZE,PSIU,CHIU,BU,PSID,DEL2CHID,BD)
 ! CALCUALTE ALL TERMS OF BOUSSINESQ EVP:
 ! U: U_0 X W + U X W_0 + (-2*OMEGA)(e_z X U) - B e_z
 ! B: -(U_0.GRAD)B + U_z * N^2
-! [UPDATES]:
-! CODED BY JINGE WANG @ OCT 10 2024
 !=======================================================================
 IMPLICIT NONE
 INTEGER:: NSIZE
