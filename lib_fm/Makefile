@@ -1,12 +1,19 @@
-
 #
-#  Determine your Fortran compiler and some of its flags:
+# Auto-detect OS
+UNAME_S := $(shell uname -s)
 
-F90 = ifort
-
-F90FLAGS = -O3 -I./
-F90LINKFLAGS = -O3 -I./
-
+# Determine Fortran compiler and flags based on OS
+ifeq ($(UNAME_S),Linux)
+    # Linux settings
+    F90 = ifort
+    F90FLAGS = -O3 -I./
+    F90LINKFLAGS = -O3 -I./
+else ifeq ($(UNAME_S),Darwin)
+    # macOS settings
+    F90 = gfortran
+    F90FLAGS = -O3 -I./ -m64
+    F90LINKFLAGS = -O3 -I./ -m64
+endif
 
 .SUFFIXES:
 
@@ -26,9 +33,10 @@ F90LINKFLAGS = -O3 -I./
 #
 vpath %.f90 /
 
-OBJS = fmsave.o fm.o  fmzm90.o \
+OBJS = fmsave.o fm.o fmzm90.o \
 
 all: $(OBJS)
+	mkdir -p ../obj ../mod
 	mv *.o ../obj/
 	mv *.mod ../mod/
 
@@ -47,5 +55,4 @@ run: $(executables)
 	echo; echo "RUNNING $$f ..." ; \
 	./$$f ; \
 	echo "**************************************************"; \
-	done 
-
+	done

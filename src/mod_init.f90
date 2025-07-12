@@ -472,11 +472,11 @@ CONTAINS
           VISC%SW  = ATOF(COM(1))
           VISC%NU  = ATOF(COM(2))
           IF (VISC%NU .GE. 1.D0) THEN
-            VISC%NU = VISC%NU**-1.D0
+            VISC%NU = VISC%NU**(-1.D0)
           ENDIF
           VISC%NUP = ATOF(COM(3))
           IF (VISC%NUP .GE. 1.D0) THEN
-            VISC%NUP = VISC%NUP**-1.D0
+            VISC%NUP = VISC%NUP**(-1.D0)
           ENDIF
           VISC%P   = ATOF(COM(4))
         ELSEIF(COM(1).EQ.'NUP_ADJUST') THEN

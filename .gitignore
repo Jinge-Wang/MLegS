@@ -1,0 +1,9 @@
+/bin/
+/obj/
+/mod/
+/data/*
+*.o
+*.mod
+*.exe
+*.out
+.*
