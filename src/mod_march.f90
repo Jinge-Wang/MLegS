@@ -93,7 +93,7 @@ MODULE MOD_MARCH ! LEVEL 4 MODULE
 !======================== PUBLIC DECLARATION ===========================
 !=======================================================================
   ! TIME ADVANCEMENT SCHEMES (ADAMS-BASHFORTH, RICHARDSON, EULER)
-  PUBLIC:: ADAMSB, RICH, EULER
+  PUBLIC:: ADAMSB, RICH, EULER, KRYLOV2, KRYLOV_INIT
   ! VISCOSITY & HYPERVISCOSITY IMPOSITION
   PUBLIC:: VISC1,VISC2,HYPERV
   ! DIAGNOSIS OF FIELD
@@ -108,11 +108,6 @@ MODULE MOD_MARCH ! LEVEL 4 MODULE
   PUBLIC:: ENEMON
   ! HYPERVISCOSITY ADJUSTMENT
   PUBLIC:: HYPADJ
-! ============================== MOD_FD ================================
-! ! SMOOTHING BY CONVOLUTION
-! PUBLIC:: SMOOTH
-! ! UNUSED FUNCTIONS
-! PUBLIC:: DC,DDC,OPER
   
 CONTAINS
 !=======================================================================
@@ -156,7 +151,8 @@ CONTAINS
   CALL ALLOCATE(   BN )
 
   ! CALL NONLIN(PSI,CHI,PSIN,CHIN)
-  CALL BOUSSINESQ(PSI,CHI,B,PSIN,CHIN,BN)
+  ! CALL BOUSSINESQ(PSI,CHI,B,PSIN,CHIN,BN)
+  CALL BOUSSINESQ_AB(PSI,CHI,B,PSIN,CHIN,BN)
 
   CALL ALLOCATE( PSI0 )
   CALL ALLOCATE( CHI0 )
@@ -188,6 +184,7 @@ CONTAINS
   RETURN
   END SUBROUTINE ADAMSB
 !=======================================================================
+
   SUBROUTINE RICH(PSI,CHI,B,PSIN,CHIN,BN)
 !=======================================================================
 ! [USAGE]: 
@@ -215,6 +212,8 @@ CONTAINS
   TYPE(SCALAR):: P_N,C_N,B_N
   REAL(P8):: DT, HDT
 
+  CALL KRYLOV_INIT()
+
   DT = TIM%DT
   HDT = DT*0.5D0
   TIM%T = TIM%T + DT
@@ -228,7 +227,8 @@ CONTAINS
 
   ! FIRST HALF-STEP
   ! CALL NONLIN(PSI,CHI,PSIN,CHIN)
-  CALL BOUSSINESQ(PSI,CHI,B,PSIN,CHIN,BN)
+  ! CALL BOUSSINESQ(PSI,CHI,B,PSIN,CHIN,BN)
+  call BOUSSINESQ_AB(PSI,CHI,B,PSIN,CHIN,BN)
 
   PSI2%E =PSI%E + (HDT*PSIN%E)
   CHI2%E =CHI%E + (HDT*CHIN%E)
@@ -242,7 +242,8 @@ CONTAINS
 
   ! SECOND HALF-STEP
   ! CALL NONLIN(PSI2,CHI2,P_N,C_N)
-  CALL BOUSSINESQ(PSI2,CHI2,B2,P_N,C_N,B_N)
+  ! CALL BOUSSINESQ(PSI2,CHI2,B2,P_N,C_N,B_N)
+  CALL BOUSSINESQ_AB(PSI2,CHI2,B2,P_N,C_N,B_N)
 
   PSI2%E =PSI2%E + (HDT*P_N%E)
   CHI2%E =CHI2%E + (HDT*C_N%E)
@@ -271,6 +272,162 @@ CONTAINS
 
   RETURN
   END SUBROUTINE RICH
+!=======================================================================
+
+  SUBROUTINE KRYLOV_INIT()
+!=======================================================================
+! [USAGE]: 
+! INITIALIZE KRYLOV SUBSPACE FOR NONLINEAR SOLVER
+!=======================================================================
+  IMPLICIT NONE
+  COMPLEX(P8),DIMENSION(4,4):: S_L, J, S_R, J_EXP, J_INV, IDEN
+  INTEGER:: I
+  REAL(P8):: N, OMEGA, DT
+
+  ! Check if Adams-Bashforth method is used for linear terms
+  IF (BSNSQ%ADAMS) RETURN
+  
+  ! Get parameters from BSNSQ
+  N = BSNSQ%BV0
+  OMEGA = BSNSQ%OMEGA
+  DT = TIM%DT
+  
+  ! Initialize matrices to zero
+  J = CMPLX(0.0D0, 0.0D0, P8)
+  S_L = CMPLX(0.0D0, 0.0D0, P8)
+  S_R = CMPLX(0.0D0, 0.0D0, P8)
+  IDEN = CMPLX(0.0D0, 0.0D0, P8)
+  
+  ! Identity matrix
+  DO I = 1, 4
+    IDEN(I,I) = CMPLX(1.0D0, 0.0D0, P8)
+  ENDDO
+  
+  ! Initialize the J diagonal matrix
+  J(1,1) = -IU * N
+  J(2,2) = IU * N
+  J(3,3) = -2.0D0 * IU * OMEGA
+  J(4,4) = 2.0D0 * IU * OMEGA
+  
+  ! Initialize the S_L matrix
+  S_L(1,3) = IU
+  S_L(1,4) = -IU
+  S_L(2,3) = 1.0D0
+  S_L(2,4) = 1.0D0
+  S_L(3,1) = -IU / N
+  S_L(3,2) = IU / N
+  S_L(4,1) = 1.0D0
+  S_L(4,2) = 1.0D0
+  
+  ! Initialize the S_R matrix
+  S_R(1,3) = IU * N / 2.0D0
+  S_R(1,4) = 0.5D0
+  S_R(2,3) = -IU * N / 2.0D0
+  S_R(2,4) = 0.5D0
+  S_R(3,1) = -IU / 2.0D0
+  S_R(3,2) = 0.5D0
+  S_R(4,1) = IU / 2.0D0
+  S_R(4,2) = 0.5D0
+  
+  ! Compute matrix exponential for diagonal J
+  J_EXP = IDEN
+  DO I = 1, 4
+    J_EXP(I,I) = EXP(J(I,I) * DT)
+  ENDDO
+  
+  ! Compute J inverse
+  J_INV = IDEN
+  DO I = 1, 4
+    IF (ABS(J(I,I)) > 1.0D-14) THEN
+      J_INV(I,I) = 1.0D0 / J(I,I)
+    ELSE
+      J_INV(I,I) = CMPLX(0.0D0, 0.0D0, P8)
+    ENDIF
+  ENDDO
+  
+  ! Calculate S_0 = S_R * e^{J*DT} * S_L
+  BSNSQ%S_0 = MATMUL(S_R, MATMUL(J_EXP, S_L))
+  
+  ! Calculate S_N = S_R * J^-1 * (e^{J*DT} - I) * S_L
+  BSNSQ%S_N = MATMUL(S_R, MATMUL(J_INV, MATMUL(J_EXP - IDEN, S_L)))
+  
+  IF (MPI_RANK.EQ.0) THEN
+    WRITE(*,*) 'Krylov subspace initialized for linear part'
+  ENDIF
+
+  RETURN
+  END SUBROUTINE KRYLOV_INIT
+!=======================================================================
+
+  SUBROUTINE KRYLOV2(PSI,CHI,B,PSINO,CHINO,BNO)
+!=======================================================================
+! [USAGE]: 
+! UPDATE POLOIDAL-TOROIDAL TERMS OF THE VELOCITY FIELD BY 1 TIME STEP
+! USING ADAMS-BASHFORTH METHOD
+! [PARAMETERS]:
+! PSI >> TOROIDAL TERM IN A SCALAR-TYPE VARIABLE
+! CHI >> POLOIDAL TERM IN A SCALAR-TYPE VARIABLE
+! B   >> DENSITY TERM IN A SCALAR-TYPE VARIABLE
+! PSINO >> NONLINEAR COMPONENT OF THE TOROIDAL TERM IN THE PREVIOUS STEP
+! CHINO >> NONLINEAR COMPONENT OF THE POLOIDAL TERM IN THE PREVIOUS STEP
+! BNO   >> NONLINEAR COMPONENT OF THE DENSITY  TERM IN THE PREVIOUS STEP
+! [DEPENDENCIES]:
+! 1. (DE)ALLOCATE(~) @ MOD_SCALAR3
+! 2. NONLIN(~) @ MOD_LEGOPS
+! 3. VISC2(~) @ MOD_MARCH
+! 4. HYPERV(~) @ MOD_MARCH
+! [UPDATES]:
+! RE-CODED BY SANGJOON LEE @ NOV 20 2020
+!=======================================================================
+  IMPLICIT NONE
+  TYPE(SCALAR):: PSI,CHI,B,PSINO,CHINO,BNO
+  TYPE(SCALAR):: PSIN,CHIN,BN
+
+  TYPE(SCALAR):: PSI0,CHI0,B0
+  REAL(P8):: DT
+
+  DT = TIM%DT
+  TIM%T = TIM%T + DT
+  TIM%N = TIM%N + 1
+  ADV%X = ADV%X + ADV%UX*DT
+  ADV%Y = ADV%Y + ADV%UY*DT
+
+  CALL ALLOCATE( PSIN )
+  CALL ALLOCATE( CHIN )
+  CALL ALLOCATE(   BN )
+
+  ! NONLINEAR TERMS FOR CURRENT TIME STEP
+  CALL BOUSSINESQ_NONLIN(PSI,CHI,B,PSIN,CHIN,BN)
+
+  CALL ALLOCATE( PSI0 )
+  CALL ALLOCATE( CHI0 )
+  CALL ALLOCATE(   B0 )
+
+  PSI0 = PSI
+  CHI0 = CHI
+  B0 = B
+
+  PSI%E = PSI%E +DT*(1.5D0*PSIN%E -0.5D0*PSINO%E)
+  CHI%E = CHI%E +DT*(1.5D0*CHIN%E -0.5D0*CHINO%E)
+    B%E =   B%E +DT*(1.5D0*  BN%E -0.5D0*  BNO%E)
+
+  PSINO=PSIN
+  CHINO=CHIN
+    BNO=  BN
+
+  CALL DEALLOCATE( PSIN )
+  CALL DEALLOCATE( CHIN )
+  CALL DEALLOCATE(   BN )
+
+  CALL VISC2(PSI,CHI,B,PSI0,CHI0,B0)
+  CALL HYPERV(PSI,CHI,B,DT)
+
+  CALL DEALLOCATE( PSI0 )
+  CALL DEALLOCATE( CHI0 )
+  CALL DEALLOCATE(   B0 )
+
+  RETURN
+  END SUBROUTINE KRYLOV2
 !=======================================================================
 
   SUBROUTINE EULER(PSI,CHI,B,PSIN,CHIN,BN)
@@ -305,7 +462,8 @@ CONTAINS
   ADV%Y = ADV%Y + ADV%UY*DT
 
   ! CALL NONLIN(PSI,CHI,PSIN,CHIN)
-  CALL BOUSSINESQ(PSI,CHI,B,PSIN,CHIN,BN)
+  ! CALL BOUSSINESQ(PSI,CHI,B,PSIN,CHIN,BN)
+  CALL BOUSSINESQ_AB(PSI,CHI,B,PSIN,CHIN,BN)
 
   PSI%E =PSI%E + (DT*PSIN%E)
   CHI%E =CHI%E + (DT*CHIN%E)
@@ -809,7 +967,7 @@ CONTAINS
 
   REAL(P8):: VALENS,VALX,VALY,VALR
 
-  IF (MPI_RANK.EQ.0) OPEN(UNIT=14,FILE='coresize.dat',POSITION='APPEND')
+  IF (MPI_RANK.EQ.0) OPEN(UNIT=14,FILE=TRIM(ADJUSTL(FILES%SAVEDIR))//'coresize.dat',POSITION='APPEND')
 
   CALL TOFP(ROR)
   CALL TOFP(ROP)
@@ -1534,50 +1692,4 @@ CONTAINS
   END FUNCTION DDC
 ! ======================================================================
 
-! ========================= UNUSED FUNCTIONS ===========================
-! !=======================================================================
-!       FUNCTION DC(R)
-! !=======================================================================
-!       REAL(P8),DIMENSION(:):: R
-!       REAL(P8),DIMENSION(SIZE(R),3):: DC
-!
-!       REAL(P8):: X0,X1,X2
-!       INTEGER:: NI,I
-!
-!       NI = SIZE(R)
-!       DC(1,:)=0
-!       DC(NI,:)=0
-!
-!       DO I=2,NI-1
-!         X0=R(I-1)
-!         X1=R(I  )
-!         X2=R(I+1)
-!         DC(I,1) = (X1-X2)/(X0-X1)/(X0-X2)
-!         DC(I,2) = (2*X1-X0-X2)/(X1-X0)/(X1-X2)
-!         DC(I,3) = (X1-X0)/(X2-X0)/(X2-X1)
-!       ENDDO
-!
-!       RETURN
-!       END FUNCTION DC
-! !=======================================================================
-!       FUNCTION OPER(OP,F)
-! !=======================================================================
-!       REAL(P8),DIMENSION(:):: F
-!       REAL(P8),DIMENSION(:,:):: OP
-!       REAL(P8),DIMENSION(SIZE(F)):: OPER
-!
-!       INTEGER:: NI,I
-!
-!       NI = SIZE(F)
-!
-!       OPER(1)=0
-!       OPER(NI)=0
-!
-!       OPER(2:NI-1) = OP(2:NI-1,1)*F(1:NI-2)  &
-!       + OP(2:NI-1,2)*F(2:NI-1)  &
-!       + OP(2:NI-1,3)*F(3:NI  )
-!
-!       RETURN
-!       END FUNCTION OPER
-! !=======================================================================
 END MODULE MOD_MARCH

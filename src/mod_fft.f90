@@ -8,36 +8,86 @@ MODULE MOD_FFT ! LEVEL 2.5 MODULE
     USE MOD_SCALAR3                                                    ! LEVEL 2
     IMPLICIT NONE
     PRIVATE
-! ======================================================================
-! =========================== FFT STRATEGY =============================
-! ======================================================================
-! N1: SUBCOMM_1
-! N2: SUBCOMM_2
+!==============================================================================
+! TRANSFORM STRATEGY SUMMARY:
+!==============================================================================
 !
-! HORFFT:
-! PPP: NDIMR/N1, NDIMTH, NDIMX/N2 << PPP
-! >>FFT
-! PFP: NDIMR/N1, NDIMTH, NDIMX/N2 << PFP
+! DOMAIN DECOMPOSITION:
+! ---------------------
+! - N1: Number of processors in SUBCOMM_1 (typically larger dimension)
+! - N2: Number of processors in SUBCOMM_2 (typically smaller dimension)
 !
-! VERFFT:
-! PFP: NDIMR/N1, NDIMTH, NDIMX/N2
-! >>CHOP
-! PFP: NDIMR/N1, NTCHOPDIM, NDIMX/N2 -> TYPE_PFP0
-! >>EXCHANGE
-! PFP: NDIMR/N1, NTCHOPDIM/N2, NDIMX -> TYPE_PFP1
-! >>FFT
-! PFF: NDIMR/N1, NTCHOPDIM/N2, NDIMX
-! >>CHOP
-! PFF: NDIMR/N1, NTCHOPDIM/N2, NXCHOPDIM -> TYPE_PFF0
-! >>EXCHANGE
-! PFF: NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1 -> TYPE_PFF1
-
-! RTRAN:
-! PFF: NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1 << PFF
-! >>RTRAN
-! FFF: NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1
-! >>CHOP
-! FFF: NRCHOPDIM, NTCHOPDIM/N2, NXCHOPDIM/N1 << FFF
+! SPACE DEFINITIONS:
+! -----------------
+! - PPP: Physical space in (R,th,Z)      [NDIMR/N1, NDIMTH, NDIMX/N2]
+! - PFP: Fourier in th only              [NDIMR/N1, NDIMTH, NDIMX/N2]
+! - PFF: Fourier in th and Z             [NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1]
+! - FFF: Spectral in all directions     [NRCHOPDIM, NTCHOPDIM/N2, NXCHOPDIM/N1]
+!
+! TRANSFORMATION SEQUENCES:
+! -----------------------
+! 1. PHYSICAL TO SPECTRAL: PPP -> PFP -> PFF -> FFF
+!    a) HORFFT(A,-1): th-direction FFT transforms PPP -> PFP
+!    b) VERFFT(A,-1): Z-direction FFT transforms PFP -> PFF
+!    c) RTRAN(A,-1):  R-direction Legendre transform PFF -> FFF
+!    d) Alternative: TOFF(A) performs all steps in sequence
+!
+! 2. SPECTRAL TO PHYSICAL: FFF -> PFF -> PFP -> PPP
+!    a) RTRAN(A,1):  R-direction inverse Legendre transform FFF -> PFF
+!    b) VERFFT(A,1): Z-direction inverse FFT transforms PFF -> PFP
+!    c) HORFFT(A,1): th-direction inverse FFT transforms PFP -> PPP
+!    d) Alternative: TOFP(A) performs all steps in sequence
+!
+! INTERMITTENT MPI DATATYPES:
+! --------------------------
+! During VERFFT, several specialized MPI datatypes facilitate efficient 
+! parallel data exchange:
+!
+! 1. TYPE_PFP0: [NDIMR/N1, NTCHOPDIM, NDIMX/N2]
+!    - Used in VERFFT for initial data layout where R is distributed across SUBCOMM_1 
+!      and Z is distributed across SUBCOMM_2
+!    - Used as source type in EXCHANGE_3DCOMPLEX_FAST to redistribute data
+!
+! 2. TYPE_PFP1: [NDIMR/N1, NTCHOPDIM/N2, NDIMX]
+!    - Target format after first redistribution in VERFFT
+!    - Consolidates Z dimension locally while distributing theta across processors
+!    - Enables efficient Z-direction FFT with contiguous memory access
+!
+! 3. TYPE_PFF0: [NDIMR/N1, NTCHOPDIM/N2, NXCHOPDIM]
+!    - Format after Z-direction FFT and chopping in VERFFT
+!    - Used as source type for second redistribution
+!    - Prepares data for radial dimension consolidation
+!
+! 4. TYPE_PFF1: [NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1]
+!    - Final distributed format before Legendre transform
+!    - Allows RTRAN to operate on complete radial dimension locally
+!
+! VERFFT TRANSFORMATION PROCESS IN DETAIL:
+! ---------------------------------------
+! 1. Forward transform (PPP->PFF, IS=-1):
+!    a) Input: A%E in PFP_SPACE format [NDIMR/N1, NDIMTH, NDIMX/N2]
+!    b) Extract chopped theta data into A_PFP0 [NDIMR/N1, NTCHOPDIM, NDIMX/N2]
+!    c) Call EXCHANGE_3DCOMPLEX_FAST with TYPE_PFP0/TYPE_PFP1 to redistribute
+!       producing A_PFP1 [NDIMR/N1, NTCHOPDIM/N2, NDIMX]
+!    d) Perform Z-direction FFT using DFFTW_EXECUTE_DFT on each processor
+!    e) Chop to spectral resolution, forming A_PFF0 [NDIMR/N1, NTCHOPDIM/N2, NXCHOPDIM]
+!    f) Call EXCHANGE_3DCOMPLEX_FAST with TYPE_PFF0/TYPE_PFF1 for final redistribution
+!       producing A_PFF1 [NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1]
+!    g) Reallocate A in PFF_SPACE and copy A_PFF1 data
+!
+! 2. Backward transform (PFF->PFP, IS=1):
+!    a) Input: A%E in PFF_SPACE format [NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1]
+!    b) Store data in A_PFF1 [NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1]
+!    c) Call EXCHANGE_3DCOMPLEX_FAST with TYPE_PFF1/TYPE_PFF0 to redistribute
+!       producing A_PFF0 [NDIMR/N1, NTCHOPDIM/N2, NXCHOPDIM]
+!    d) Expand to full Z dimension in A_PFP1 [NDIMR/N1, NTCHOPDIM/N2, NDIMX]
+!    e) Perform inverse Z-direction FFT using DFFTW_EXECUTE_DFT
+!    f) Call EXCHANGE_3DCOMPLEX_FAST with TYPE_PFP1/TYPE_PFP0 to redistribute
+!       producing A_PFP0 [NDIMR/N1, NTCHOPDIM, NDIMX/N2]
+!    g) Reallocate A in PFP_SPACE and copy expanded data
+!
+! The EXCHANGE_3DCOMPLEX_FAST function utilizes MPI_ALLTOALLW with pre-created
+! datatypes to redistribute data with minimal memory copies.
 !
 !=======================================================================
 !======================== PUBLIC DECLARATION ===========================
@@ -514,105 +564,116 @@ SUBROUTINE HORFFT(A,IS)
     CALL CHOPDO(A) 
 
     ! PHYSICAL TO FOURIER SPACE:
-    IF(IS .EQ.-1) THEN                                                 
-    IF(A%SPACE.NE.PPP_SPACE)THEN
-        IF (MPI_RANK.EQ.0) WRITE(*,*) 'HORFFT: NOT IN PHYSICAL SPACE'
-        STOP
-    ENDIF
-    IF(NTH.EQ.1) THEN
-        A%SPACE=PFP_SPACE
-        RETURN
-    ENDIF
+    IF(IS .EQ.-1) THEN
+        IF(A%SPACE.NE.PPP_SPACE)THEN
+            IF (MPI_RANK.EQ.0) WRITE(*,*) 'HORFFT: NOT IN PHYSICAL SPACE'
+            STOP
+        ENDIF
+        
+        IF(NTH.EQ.1) THEN
+            A%SPACE=PFP_SPACE
+            RETURN
+        ENDIF
 
-!$OMP PARALLEL DEFAULT(SHARED) PRIVATE(B,C,KK,II,MM,PLAN)
+        ! CREATE PLAN OUTSIDE OF PARALLEL REGION (THREAD-SAFETY)
+        ALLOCATE(B(NDIMTH))
+        B = CMPLX(0.D0)
+        ALLOCATE(C(2*NTH))
+        C = 0.D0
+        CALL DFFTW_PLAN_DFT_R2C_1D(PLAN,2*NTH,C,B,FFTW_ESTIMATE)
+        DEALLOCATE(B)
+        DEALLOCATE(C)
 
-    ALLOCATE(B(NDIMTH)); B = CMPLX(0.D0);                            ! for 2*NTH, R2CFFT gives NTH+1
-    ALLOCATE(C(2*NTH)); C = 0.D0;
-
-    CALL DFFTW_PLAN_DFT_R2C_1D(PLAN,2*NTH,C,B,FFTW_ESTIMATE)
-    
-    !$OMP DO COLLAPSE(2)
-    DO KK=1,XSIZE !NX                                                ! THIS DO LOOP IS PARALLELIZABLE 
-        DO II=1,RSIZE !NR 
-
-        B = A%E(II,:NDIMTH,KK)
-        DO MM = 1,NTH
-            C(2*MM-1) = REAL(B(MM))
-            C(2*MM  ) = AIMAG(B(MM))
+        !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(B,C,KK,II,MM)
+        ALLOCATE(B(NDIMTH))
+        ALLOCATE(C(2*NTH))
+        
+        !$OMP DO COLLAPSE(2)
+        DO KK=1,XSIZE !NX
+            DO II=1,RSIZE !NR
+                B = A%E(II,:NDIMTH,KK)
+                DO MM = 1,NTH
+                    C(2*MM-1) = REAL(B(MM))
+                    C(2*MM  ) = AIMAG(B(MM))
+                ENDDO
+                
+                CALL DFFTW_EXECUTE_DFT_R2C(PLAN,C,B)
+                A%E(II,:NDIMTH,KK) = B/(2*NTH)
+            ENDDO
         ENDDO
-        CALL DFFTW_EXECUTE_DFT_R2C(PLAN,C,B)
-        A%E(II,:NDIMTH,KK) = B/(2*NTH)
+        !$OMP END DO
 
-        ENDDO
-    ENDDO
-    !$OMP END DO
+        DEALLOCATE(B)
+        DEALLOCATE(C)
+        !$OMP END PARALLEL
 
-    DEALLOCATE( B )
-    DEALLOCATE( C )
+        CALL DFFTW_DESTROY_PLAN(PLAN)
 
-    CALL DFFTW_DESTROY_PLAN(PLAN)
+        ! CHOPPING IN THETA DIRECTION:
+        A%E(:,NTCHOP+1:,:) = CMPLX(0.D0,0.D0)
 
-!$OMP END PARALLEL
-    
-    A%E(:,NTCHOP+1:,:) = CMPLX(0.D0,0.D0)                            ! CHOPPING IN THETA DIRECTION
+        ! ELIMINATE COMPLEX RESIDUAL DUE TO MACHINE ERROR
+        A%E(:,1,:) = CMPLX(REAL(A%E(:,1,:)),0.D0)
 
-    A%E(:,1,:) = CMPLX(REAL(A%E(:,1,:)),0.D0)                        ! MAKE SURE TO ELIMINATE COMPLEX RESIDUAL DUE TO MACHINE ERROR
-
-    A%SPACE = PFP_SPACE                                              ! CHANGE SPACE TAG FROM PPP -> PFP
-
+        A%SPACE = PFP_SPACE
 
     ! FOURIER TO PHYSICAL SPACE:
-    ELSE                                                               
-    IF(A%SPACE.NE.PFP_SPACE)THEN
-        IF (MPI_RANK.EQ.0) WRITE(*,*) 'HORFFT: NOT IN PFP SPACE'
-        STOP
-    ENDIF
-    IF(NTH.EQ.1) THEN
-        A%SPACE=PPP_SPACE
-        RETURN
-    ENDIF
+    ELSE
+        IF(A%SPACE.NE.PFP_SPACE)THEN
+            IF (MPI_RANK.EQ.0) WRITE(*,*) 'HORFFT: NOT IN PFP SPACE'
+            STOP
+        ENDIF
+        
+        IF(NTH.EQ.1) THEN
+            A%SPACE=PPP_SPACE
+            RETURN
+        ENDIF
 
-    A%E(:,1,:) = CMPLX(REAL(A%E(:,1,:)),0.D0)                        ! MAKE SURE TO ELIMINATE COMPLEX RESIDUAL DUE TO MACHINE ERROR
+        ! ELIMINATE COMPLEX RESIDUAL DUE TO MACHINE ERROR
+        A%E(:,1,:) = CMPLX(REAL(A%E(:,1,:)),0.D0)
 
-    A%E(:,NTCHOP+1:,:) = CMPLX(0.D0,0.D0)                            ! CHOPPING IN THETA DIRECTION
+        ! CHOPPING IN THETA DIRECTION:
+        A%E(:,NTCHOP+1:,:) = CMPLX(0.D0,0.D0)
 
-!$OMP PARALLEL DEFAULT(SHARED) PRIVATE(B,C,KK,II,MM,PLAN)
-
-    ALLOCATE( B(NDIMTH) ); B = CMPLX(0.D0);
-    ALLOCATE( C(2*NTH ) ); C = 0.D0;
-
-    CALL DFFTW_PLAN_DFT_C2R_1D(PLAN,2*NTH,B,C,FFTW_ESTIMATE)
-
-    !$OMP DO COLLAPSE(2)
-    DO KK=1,XSIZE !NX                                                ! THIS DO LOOP IS PARALLELIZABLE 
-        DO II=1,RSIZE !NR
-
-        B = A%E(II,:NDIMTH,KK)
+        ! CREATE PLAN OUTSIDE OF PARALLEL REGION (THREAD-SAFETY)
+        ALLOCATE(B(NDIMTH))
+        B = CMPLX(0.D0)
+        ALLOCATE(C(2*NTH))
         C = 0.D0
-        CALL DFFTW_EXECUTE_DFT_C2R(PLAN,B,C)
-        DO MM = 1,NTH
-            A%E(II,MM,KK) = CMPLX(C(2*MM-1),C(2*MM),P8)
+        CALL DFFTW_PLAN_DFT_C2R_1D(PLAN,2*NTH,B,C,FFTW_ESTIMATE)
+        DEALLOCATE(B)
+        DEALLOCATE(C)
+
+        !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(B,C,KK,II,MM)
+        ALLOCATE(B(NDIMTH))
+        ALLOCATE(C(2*NTH))
+        
+        !$OMP DO COLLAPSE(2)
+        DO KK=1,XSIZE !NX
+            DO II=1,RSIZE !NR
+                B = A%E(II,:NDIMTH,KK)
+                C = 0.D0
+                CALL DFFTW_EXECUTE_DFT_C2R(PLAN,B,C)
+                
+                DO MM = 1,NTH
+                    A%E(II,MM,KK) = CMPLX(C(2*MM-1),C(2*MM),P8)
+                ENDDO
+                A%E(II,NDIMTH,KK) = CMPLX(0.D0, 0.D0)
+            ENDDO
         ENDDO
-        A%E(II,NDIMTH,KK) = CMPLX(0.D0, 0.D0)
+        !$OMP END DO
 
-        ENDDO
-    ENDDO
-    !$OMP END DO
+        DEALLOCATE(B)
+        DEALLOCATE(C)
+        !$OMP END PARALLEL
 
-    DEALLOCATE( B )
-    DEALLOCATE( C )
-
-    CALL DFFTW_DESTROY_PLAN(PLAN)
-
-!$OMP END PARALLEL
-
-    A%SPACE = PPP_SPACE                                              ! CHANGE SPACE TAG FROM PFP -> PPP
-
+        CALL DFFTW_DESTROY_PLAN(PLAN)
+        A%SPACE = PPP_SPACE
     ENDIF
 
     CALL CHOPDO(A)
     RETURN
-    END SUBROUTINE HORFFT
+END SUBROUTINE HORFFT
 !=======================================================================
     SUBROUTINE VERFFT(A,IS)
 !=======================================================================
@@ -647,12 +708,11 @@ SUBROUTINE HORFFT(A,IS)
     INTEGER,INTENT(IN):: IS
 
     COMPLEX(P8),DIMENSION(:),ALLOCATABLE:: B
-    INTEGER:: JJ,KK
+    INTEGER:: JJ, KK
     REAL(P8):: FAC
     INTEGER(P8):: PLAN
-    ! TYPE(C_PTR):: PLAN2
 
-    COMPLEX(P8),DIMENSION(:,:,:),ALLOCATABLE:: A_PFP0,A_PFP1,A_PFF0,A_PFF1
+    COMPLEX(P8),DIMENSION(:,:,:),ALLOCATABLE:: A_PFP0, A_PFP1, A_PFF0, A_PFF1
     REAL(P8):: LN
 
     ! PFP: NDIMR/N1, NDIMTH, NDIMX/N2
@@ -661,148 +721,143 @@ SUBROUTINE HORFFT(A,IS)
     ! MPI PREP =============================================================
     LN = A%LN
     CALL CHOPDO(A)
-    CALL MPI_BARRIER(MPI_COMM_IVP,IERR)
+    CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
 
     ! ALLOCATE: TWO UTILITY ARRAYS IN PFP0 AND PFP1
-    ALLOCATE(A_PFP0(SIZE_PFP0(1),SIZE_PFP0(2),SIZE_PFP0(3)))
-    ALLOCATE(A_PFP1(SIZE_PFP1(1),SIZE_PFP1(2),SIZE_PFP1(3)))
+    ALLOCATE(A_PFP0(SIZE_PFP0(1), SIZE_PFP0(2), SIZE_PFP0(3)))
+    ALLOCATE(A_PFP1(SIZE_PFP1(1), SIZE_PFP1(2), SIZE_PFP1(3)))
     ! ALLOCATE: TWO UTILITY ARRAYS IN PFF0 AND PFF1
-    ALLOCATE(A_PFF0(SIZE_PFF0(1),SIZE_PFF0(2),SIZE_PFF0(3)))
-    ALLOCATE(A_PFF1(SIZE_PFF1(1),SIZE_PFF1(2),SIZE_PFF1(3)))  
+    ALLOCATE(A_PFF0(SIZE_PFF0(1), SIZE_PFF0(2), SIZE_PFF0(3)))
+    ALLOCATE(A_PFF1(SIZE_PFF1(1), SIZE_PFF1(2), SIZE_PFF1(3)))  
 
+    ! PHYSICAL TO FOURIER SPACE: ===========================================
+    IF(IS .EQ. -1) THEN
+        IF(A%SPACE .NE. PFP_SPACE) THEN
+            IF (MPI_RANK .EQ. 0) WRITE(*,*) 'VERFFT: NOT IN PFP SPACE'
+            STOP
+        ENDIF
+        
+        IF(NX .EQ. 1) THEN
+            A%SPACE = PFF_SPACE
+            RETURN
+        ENDIF
+     
+        ! CHOP: NDIMTH -> NTCHOPDIM (NDIMR/N1, NTCHOPDOM, NDIMX/N2)
+        A_PFP0 = A%E(:, :NTCHOPDIM, :)
 
-    ! PHYSICAL TO FORUIER SPACE: ===========================================
-    IF(IS .EQ.-1) THEN                                                 
-    IF(A%SPACE.NE.PFP_SPACE) THEN
-        IF (MPI_RANK.EQ.0) WRITE(*,*) 'VERFFT: NOT IN PFP SPACE'
-        STOP
-    ENDIF
-    IF(NX.EQ.1) THEN
-        A%SPACE=PFF_SPACE
-        RETURN
-    ENDIF
- 
-    ! CHOP: NDIMTH -> NTCHOPDIM (NDIMR/N1, NTCHOPDOM, NDIMX/N2)
-    A_PFP0 = A%E(:,:NTCHOPDIM,:)
+        ! EXCHANGE: A_PFP0 -> A_PFP1(NDIMR/N1, NTCHOPDIM/N2, NDIMX)
+        CALL EXCHANGE_3DCOMPLEX_FAST(SUBCOMM_2, A_PFP0, TYPE_PFP0, A_PFP1, TYPE_PFP1)
 
-    ! EXCHANGE: A_PFP0 -> A_PFP1(NDIMR/N1, NTCHOPDIM/N2, NDIMX)
-    CALL EXCHANGE_3DCOMPLEX_FAST(SUBCOMM_2,A_PFP0,TYPE_PFP0,A_PFP1,TYPE_PFP1)
+        DEALLOCATE(A_PFP0)
+        
+        ! Create FFT plan outside of the parallel region
+        ALLOCATE(B(NX))
+        B = CMPLX(0.D0)
+        CALL DFFTW_PLAN_DFT_1D(PLAN, NX, B, B, FFTW_FORWARD, FFTW_ESTIMATE)
+        DEALLOCATE(B)
 
-    DEALLOCATE(A_PFP0)
-    
-!$OMP PARALLEL DEFAULT(SHARED) PRIVATE(B,JJ,KK,PLAN) 
-
-    ! CREATE FFT PLAN
-    ALLOCATE( B(NX) ); B = CMPLX(0.D0)
-
-    CALL DFFTW_PLAN_DFT_1D(PLAN,NX,B,B,FFTW_FORWARD,&
-                                        FFTW_ESTIMATE)
-
-    !$OMP DO COLLAPSE(2)
-    DO JJ=1,SIZE(A_PFP1,2) !NTCHOP                                  !!!!! THIS DO LOOP IS PARALLELIZABLE 
-        DO KK=1,SIZE(A_PFP1,1) !NR
-            !B = A%E(KK,JJ,:NX)
-            B = A_PFP1(KK,JJ,:NX)
-            CALL DFFTW_EXECUTE_DFT(PLAN,B,B)
-            !A%E(KK,JJ,:NX) = B/NX
-            A_PFP1(KK,JJ,:NX) = B/NX
+        !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(B, JJ, KK) 
+        ALLOCATE(B(NX))
+        
+        !$OMP DO COLLAPSE(2)
+        DO JJ = 1, SIZE(A_PFP1, 2) !NTCHOP
+            DO KK = 1, SIZE(A_PFP1, 1) !NR
+                B = A_PFP1(KK, JJ, :NX)
+                CALL DFFTW_EXECUTE_DFT(PLAN, B, B)
+                A_PFP1(KK, JJ, :NX) = B / NX
+            ENDDO
         ENDDO
-    ENDDO
-    !$OMP END DO
+        !$OMP END DO
 
-    DEALLOCATE( B )
-    CALL DFFTW_DESTROY_PLAN(PLAN)
+        DEALLOCATE(B)
+        !$OMP END PARALLEL
 
-!$OMP END PARALLEL
+        CALL DFFTW_DESTROY_PLAN(PLAN)
 
-    ! A%E(:NR,:NTCHOP,NXCHOP+1:NXCHOPH-1) = CMPLX(0.D0,0.D0)           ! CHOPPING IN X DIRECTION
-    ! CHOP: NDIMX -> NXCHOPDIM (NDIMR/N1, NTCHOPDIM/N2, NXCHOPDIM)
-    A_PFF0(:,:,:NXCHOP) = A_PFP1(:,:,:NXCHOP)
-    A_PFF0(:,:,NXCHOP+1:) = A_PFP1(:,:,NXCHOPH:)
+        ! CHOP: NDIMX -> NXCHOPDIM (NDIMR/N1, NTCHOPDIM/N2, NXCHOPDIM)
+        A_PFF0(:, :, :NXCHOP) = A_PFP1(:, :, :NXCHOP)
+        A_PFF0(:, :, NXCHOP+1:) = A_PFP1(:, :, NXCHOPH:)
 
-    ! EXCHANGE: A_PFF0 -> A_PFF1(NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1)
-    CALL EXCHANGE_3DCOMPLEX_FAST(SUBCOMM_1,A_PFF0,TYPE_PFF0,A_PFF1,TYPE_PFF1)
+        ! EXCHANGE: A_PFF0 -> A_PFF1(NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1)
+        CALL EXCHANGE_3DCOMPLEX_FAST(SUBCOMM_1, A_PFF0, TYPE_PFF0, A_PFF1, TYPE_PFF1)
 
-    DEALLOCATE(A_PFP1,A_PFF0)
+        DEALLOCATE(A_PFP1, A_PFF0)
 
-    ! OUTPUT A BACK (NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1)
-    CALL DEALLOCATE(A)
-    CALL ALLOCATE(A, PFF_SPACE) ! RESET A%INR, INTH, INX, SPACE
-    A%E = A_PFF1
-    A%LN = LN
-    ! CALL CHOPDO(A)
-    DEALLOCATE(A_PFF1)
+        ! OUTPUT A BACK (NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1)
+        CALL DEALLOCATE(A)
+        CALL ALLOCATE(A, PFF_SPACE) ! RESET A%INR, INTH, INX, SPACE
+        A%E = A_PFF1
+        A%LN = LN
+        DEALLOCATE(A_PFF1)
 
     ! FOURIER TO PHYSICAL ==================================================
     ELSE                                                               
-    IF(A%SPACE.NE.PFF_SPACE) THEN
-        IF (MPI_RANK.EQ.0) WRITE(*,*) 'VERFFT: NOT IN PFF SPACE'
-        STOP
-    ENDIF
-    IF(NX.EQ.1) THEN
-        A%SPACE=PFP_SPACE
-        RETURN
-    ENDIF
-    
-    ! A%E -> A_PFF1(NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1)
-    A_PFF1 = A%E
+        IF(A%SPACE .NE. PFF_SPACE) THEN
+            IF (MPI_RANK .EQ. 0) WRITE(*,*) 'VERFFT: NOT IN PFF SPACE'
+            STOP
+        ENDIF
+        
+        IF(NX .EQ. 1) THEN
+            A%SPACE = PFP_SPACE
+            RETURN
+        ENDIF
+        
+        ! A%E -> A_PFF1(NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1)
+        A_PFF1 = A%E
 
-    ! EXCHANGE: A_PFF1 -> A_PFF0(NDIMR/N1, NTCHOPDIM/N2, NXCHOPDIM)
-    CALL EXCHANGE_3DCOMPLEX_FAST(SUBCOMM_1,A_PFF1,TYPE_PFF1,A_PFF0,TYPE_PFF0)
+        ! EXCHANGE: A_PFF1 -> A_PFF0(NDIMR/N1, NTCHOPDIM/N2, NXCHOPDIM)
+        CALL EXCHANGE_3DCOMPLEX_FAST(SUBCOMM_1, A_PFF1, TYPE_PFF1, A_PFF0, TYPE_PFF0)
 
-    ! UNCHOP: NXCHOPDIM -> NDIMX(NDIMR/N1, NTCHOPDIM/N2, NDIMX)
-    A_PFP1 = CMPLX(0.D0,0.D0)
-    A_PFP1(:,:,:NXCHOP) = A_PFF0(:,:,:NXCHOP)
-    A_PFP1(:,:,NXCHOPH:) = A_PFF0(:,:,NXCHOP+1:)
-    !A%E(:NR,:NTCHOP,NXCHOP+1:NXCHOPH-1) = CMPLX(0.D0,0.D0)           ! CHOPPING IN X DIRECTION
-    A_PFP1(:,:,NXCHOP+1:NXCHOPH-1) = CMPLX(0.D0,0.D0)
-    DEALLOCATE(A_PFF0,A_PFF1)
+        ! UNCHOP: NXCHOPDIM -> NDIMX(NDIMR/N1, NTCHOPDIM/N2, NDIMX)
+        A_PFP1 = CMPLX(0.D0, 0.D0)
+        A_PFP1(:, :, :NXCHOP) = A_PFF0(:, :, :NXCHOP)
+        A_PFP1(:, :, NXCHOPH:) = A_PFF0(:, :, NXCHOP+1:)
+        A_PFP1(:, :, NXCHOP+1:NXCHOPH-1) = CMPLX(0.D0, 0.D0)
+        
+        DEALLOCATE(A_PFF0, A_PFF1)
 
-!$OMP PARALLEL DEFAULT(SHARED) PRIVATE(B,JJ,KK,PLAN) 
+        ! Create FFT plan outside of the parallel region
+        ALLOCATE(B(NX))
+        B = CMPLX(0.D0)
+        CALL DFFTW_PLAN_DFT_1D(PLAN, NX, B, B, FFTW_BACKWARD, FFTW_ESTIMATE)
+        DEALLOCATE(B)
 
-    ! CREATE FFT PLAN
-    ALLOCATE( B(NX) ); B = CMPLX(0.D0);
-    CALL DFFTW_PLAN_DFT_1D(PLAN,NX,B,B,FFTW_BACKWARD,&
-                                        FFTW_ESTIMATE)
-
-    !$OMP DO COLLAPSE(2)
-    DO JJ=1,SIZE(A_PFP1,2) !NTCHOP                                   !!!!! THIS DO LOOP IS PARALLELIZABLE 
-        DO KK=1,SIZE(A_PFP1,1) !NR
-        !B = A%E(KK,JJ,:NX)
-        B = A_PFP1(KK,JJ,:NX)
-        !if (MPI_RANK.eq.0) write(*,*) JJ,KK,B(1)
-        CALL DFFTW_EXECUTE_DFT(PLAN,B,B)
-        !if (MPI_RANK.eq.0) write(*,*) 'afterDFFTW',B(1)
-        !A%E(KK,JJ,:NX) = B
-        A_PFP1(KK,JJ,:NX) = B
+        !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(B, JJ, KK) 
+        ALLOCATE(B(NX))
+        
+        !$OMP DO COLLAPSE(2)
+        DO JJ = 1, SIZE(A_PFP1, 2) !NTCHOP
+            DO KK = 1, SIZE(A_PFP1, 1) !NR
+                B = A_PFP1(KK, JJ, :NX)
+                CALL DFFTW_EXECUTE_DFT(PLAN, B, B)
+                A_PFP1(KK, JJ, :NX) = B
+            ENDDO
         ENDDO
-    ENDDO
-    !$OMP END DO
+        !$OMP END DO
 
-    DEALLOCATE( B )
-    CALL DFFTW_DESTROY_PLAN(PLAN)
+        DEALLOCATE(B)
+        !$OMP END PARALLEL
 
-!$OMP END PARALLEL
-    
-    ! EXCHANGE: A_PFP1 -> A_PFP0(NDIMR/N1, NTCHOPDIM, NDIMX/N2)
-    CALL EXCHANGE_3DCOMPLEX_FAST(SUBCOMM_2,A_PFP1,TYPE_PFP1,A_PFP0,TYPE_PFP0)
+        CALL DFFTW_DESTROY_PLAN(PLAN)
+        
+        ! EXCHANGE: A_PFP1 -> A_PFP0(NDIMR/N1, NTCHOPDIM, NDIMX/N2)
+        CALL EXCHANGE_3DCOMPLEX_FAST(SUBCOMM_2, A_PFP1, TYPE_PFP1, A_PFP0, TYPE_PFP0)
 
-    DEALLOCATE(A_PFP1)
-    
-    ! OUTPUT A BACK (NDIMR/N1, NDIMTH, NDIMX/N2)
-    CALL DEALLOCATE(A)
-    CALL ALLOCATE(A, PFP_SPACE) ! RESET A%INR, INTH, INX
-    ! UNCHOP: NTCHOPDIM -> NDIMTH (NDIMR/N1, NDIMTH, NDIMX/N2)
-    A%E(:,:NTCHOPDIM,:) = A_PFP0
-    A%E(:,NTCHOPDIM+1:,:) = CMPLX(0.D0,0.D0)
-    A%LN = LN
-    DEALLOCATE(A_PFP0)
-    A%SPACE = PFP_SPACE                                              ! CHANGE SPACE TAG FROM FFP -> PFP
-    
+        DEALLOCATE(A_PFP1)
+        
+        ! OUTPUT A BACK (NDIMR/N1, NDIMTH, NDIMX/N2)
+        CALL DEALLOCATE(A)
+        CALL ALLOCATE(A, PFP_SPACE) ! RESET A%INR, INTH, INX
+        ! UNCHOP: NTCHOPDIM -> NDIMTH (NDIMR/N1, NDIMTH, NDIMX/N2)
+        A%E(:, :NTCHOPDIM, :) = A_PFP0
+        A%E(:, NTCHOPDIM+1:, :) = CMPLX(0.D0, 0.D0)
+        A%LN = LN
+        DEALLOCATE(A_PFP0)
+        A%SPACE = PFP_SPACE
     ENDIF
 
     CALL CHOPDO(A)
-    CALL MPI_BARRIER(MPI_COMM_IVP,IERR)
+    CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
 
     RETURN
     END SUBROUTINE VERFFT
@@ -1593,7 +1648,7 @@ SUBROUTINE HORFFT(A,IS)
     ENDIF
 
     ! CREATE ELEMENTAL SUBARRAY OF LOCAL_ARRAY
-    CALL MPI_TYPE_CREATE_RESIZED(SUBARRAY_TYPE, 0, EXTEND_SIZE, SUBARRAY_TYPE_resized, IERR)
+    CALL MPI_TYPE_CREATE_RESIZED(SUBARRAY_TYPE, INT(0, MPI_ADDRESS_KIND), EXTEND_SIZE, SUBARRAY_TYPE_resized, IERR)
     CALL MPI_TYPE_COMMIT(SUBARRAY_TYPE_resized,IERR)
 
     ! IN EA SUBCOMM_L, GATHER LOCAL_ARRAY TO FORM SUBGLOBAL_ARRAY in SUBCOMM_L's #0 PROC
@@ -1784,7 +1839,7 @@ SUBROUTINE HORFFT(A,IS)
     ENDIF
 
     ! COMMIT VECTOR TYPE
-    CALL MPI_TYPE_CREATE_RESIZED(SUBARRAY_TYPE, 0, EXTEND_SIZE, SUBARRAY_TYPE_resized, IERR)
+    CALL MPI_TYPE_CREATE_RESIZED(SUBARRAY_TYPE, INT(0, MPI_ADDRESS_KIND), EXTEND_SIZE, SUBARRAY_TYPE_resized, IERR)
     CALL MPI_TYPE_COMMIT(SUBARRAY_TYPE_resized,IERR)
 
     ! UNPACK SUBGLOBAL ARRAY (SLABS DECOMPOSED IN THE 3RD DIM) IN EA SUBCOMM_L's PROC #0 TO 
@@ -1923,7 +1978,7 @@ SUBROUTINE HORFFT(A,IS)
 
     INTEGER:: PROC_NUM 
     INTEGER:: ARRAYSIZE, FILEBLK, LOCAL_ARRAYSIZE
-    INTEGER:: STATUS, MPIFILE, INDEX
+    INTEGER:: STATUS, MPIFILE, INDEX, MPISTATUS(MPI_STATUS_SIZE)
     INTEGER(KIND=MPI_ADDRESS_KIND):: DISPLACEMENT
 
     ! 1. save basic info:
@@ -1985,7 +2040,7 @@ SUBROUTINE HORFFT(A,IS)
     CALL MPI_FILE_OPEN(MPI_COMM_IVP, FN, MPI_MODE_WRONLY + MPI_MODE_CREATE, MPI_INFO_NULL, MPIFILE, IERR)
     CALL MPI_FILE_SET_VIEW(MPIFILE, DISPLACEMENT, MPI_DOUBLE_COMPLEX, FILEBLK, &
                         'NATIVE', MPI_INFO_NULL, IERR)
-    CALL MPI_FILE_WRITE_ALL(MPIFILE, local_scalar%E, LOCAL_ARRAYSIZE, MPI_DOUBLE_COMPLEX, STATUS, IERR)
+    CALL MPI_FILE_WRITE_ALL(MPIFILE, local_scalar%E, LOCAL_ARRAYSIZE, MPI_DOUBLE_COMPLEX, MPISTATUS, IERR)
     CALL MPI_FILE_CLOSE(MPIFILE, IERR)
     CALL MPI_TYPE_FREE(FILEBLK, IERR)
     
@@ -2125,7 +2180,7 @@ SUBROUTINE HORFFT(A,IS)
 
         INTEGER:: PROC_NUM 
         INTEGER:: ARRAYSIZE, FILEBLK, LOCAL_ARRAYSIZE
-        INTEGER:: STATUS, MPIFILE, INDEX
+        INTEGER:: STATUS, MPIFILE, INDEX, MPISTATUS(MPI_STATUS_SIZE)
         INTEGER(KIND=MPI_ADDRESS_KIND):: DISPLACEMENT
 
         INTEGER:: INDIMR, INDIMTH, INDIMX, INRCHOPDIM, INTCHOPDIM, INXCHOPDIM
@@ -2241,7 +2296,7 @@ SUBROUTINE HORFFT(A,IS)
         DISPLACEMENT = INDEX*ARRAYSIZE*CP8_SIZE
         CALL MPI_FILE_SET_VIEW(MPIFILE, DISPLACEMENT, MPI_DOUBLE_COMPLEX, FILEBLK, &
                             'NATIVE', MPI_INFO_NULL, IERR)
-        CALL MPI_FILE_READ_ALL(MPIFILE, local_scalar%E, LOCAL_ARRAYSIZE, MPI_DOUBLE_COMPLEX, STATUS, IERR)
+        CALL MPI_FILE_READ_ALL(MPIFILE, local_scalar%E, LOCAL_ARRAYSIZE, MPI_DOUBLE_COMPLEX, MPISTATUS, IERR)
         CALL MPI_FILE_CLOSE(MPIFILE, IERR)
         CALL MPI_TYPE_FREE(FILEBLK, IERR)
 
