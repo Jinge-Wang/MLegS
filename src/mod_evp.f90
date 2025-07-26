@@ -2058,7 +2058,7 @@ DEALLOCATE(PSI,DEL2CHI,CHI)
 
 END SUBROUTINE EIG2VELVOR
 ! ======================================================================
-SUBROUTINE EIG2VEL(MREAD,AKREAD,EIG_VEC_R,RUR,RUP,UZ,comm_grp)
+SUBROUTINE EIG2VEL(MREAD,AKREAD,EIG_VEC_R,RUR,RUP,UZ,comm_grp,B_VEC_R)
 !=======================================================================
 ! [USAGE]: 
 ! CONVERT EIG_VEC_R(COLUMN VECTOR) TO RUR, RUP, UZ COMPONENTS IN PFF
@@ -2070,6 +2070,7 @@ INTEGER,INTENT(IN)    :: MREAD, comm_grp
 REAL(P8),INTENT(IN)   :: AKREAD
 COMPLEX(P8),DIMENSION(:),ALLOCATABLE,INTENT(IN):: EIG_VEC_R
 COMPLEX(P8),DIMENSION(:),ALLOCATABLE,INTENT(INOUT):: RUR,RUP,UZ
+COMPLEX(P8),DIMENSION(:),ALLOCATABLE,INTENT(INOUT),OPTIONAL:: B_VEC_R
 
 INTEGER:: NR_MK, M_ACTUAL
 REAL(P8):: AK_ACTUAL
@@ -2119,10 +2120,20 @@ CALL RTRAN_MK(RUP,1)
 CALL RTRAN_MK( UZ,1)
 CALL CHOPSET(-3)
 
+IF (PRESENT(B_VEC_R)) THEN
+    IF (flip_switch) THEN
+        B_VEC_R = CONJG(B_VEC_R)
+        CALL RTRAN_MK(B_VEC_R,1)
+        B_VEC_R = CONJG(B_VEC_R)
+    ELSE
+        CALL RTRAN_MK(B_VEC_R,1)
+    ENDIF
+ENDIF
+
 IF (flip_switch) THEN
     RUR = CONJG(RUR)
     RUP = CONJG(RUP)
-        UZ = CONJG( UZ)
+    UZ = CONJG( UZ)
 ENDIF
 
 DEALLOCATE(PSI,DEL2CHI,CHI)
@@ -2367,7 +2378,7 @@ EIGRESM = EIGRESM.AND.((PSI_SUM.GE.1E-10).AND.(CHI_SUM.GE.1E-10))
 END FUNCTION
 ! ======================================================================
 
-SUBROUTINE SAVE_VEL(RUR,RUP,UZ,VEL_FILENAME)
+SUBROUTINE SAVE_VEL(RUR,RUP,UZ,VEL_FILENAME,B)
 ! ======================================================================
 ! SAVE R, UR, UP, UZ 
 ! NOTE: UR = RUR/R, etc.
@@ -2377,16 +2388,27 @@ SUBROUTINE SAVE_VEL(RUR,RUP,UZ,VEL_FILENAME)
     INTEGER:: VEL_FID=17, I,IS
     CHARACTER(LEN=*):: VEL_FILENAME
     COMPLEX(P8),DIMENSION(:),INTENT(IN):: RUR,RUP,UZ
+    COMPLEX(P8),DIMENSION(:),OPTIONAL,INTENT(IN):: B
 
     open(VEL_FID,FILE=VEL_FILENAME,STATUS='unknown',ACTION='WRITE',IOSTAT=IS)
 
-    DO I = 1,NR
-        WRITE(VEL_FID,117) TFM%R(I),REAL(RUR(I))/TFM%R(I),AIMAG(RUR(I))/TFM%R(I) &
-                                    ,REAL(RUP(I))/TFM%R(I),AIMAG(RUP(I))/TFM%R(I) &
-                                    ,REAL(UZ(I)),AIMAG(UZ(I))
-    ENDDO
+    IF (.NOT. PRESENT(B)) THEN
+        DO I = 1,NR
+            WRITE(VEL_FID,117) TFM%R(I),REAL(RUR(I))/TFM%R(I),AIMAG(RUR(I))/TFM%R(I) &
+                                        ,REAL(RUP(I))/TFM%R(I),AIMAG(RUP(I))/TFM%R(I) &
+                                        ,REAL(UZ(I)),AIMAG(UZ(I))
+        ENDDO
+    ELSE
+        DO I = 1,NR
+            WRITE(VEL_FID,118) TFM%R(I),REAL(RUR(I))/TFM%R(I),AIMAG(RUR(I))/TFM%R(I) &
+                                        ,REAL(RUP(I))/TFM%R(I),AIMAG(RUP(I))/TFM%R(I) &
+                                        ,REAL(UZ(I)),AIMAG(UZ(I)) &
+                                        ,REAL(B(I)),AIMAG(B(I))
+        ENDDO
+    ENDIF
     
 117  FORMAT(7(G20.12,:,','))
+118  FORMAT(9(G20.12,:,','))
     close(VEL_FID)
 
 END SUBROUTINE SAVE_VEL

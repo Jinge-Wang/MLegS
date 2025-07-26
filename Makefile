@@ -58,7 +58,8 @@ EXE_F = addperturb_non \
 	init \
 	vort \
 	vort9 \
-	postproc_mpi
+	postproc_mpi \
+	bsnsq_ivp
 
 # Phony targets
 .PHONY: all clean new swipe $(EXE_F)

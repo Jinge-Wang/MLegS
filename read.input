@@ -1,12 +1,12 @@
 DIMENSION 
 #     NR     NTH      NX ----------------------------------(POWER OF 2)
-     370       8      64
-#    370     128     128
+#    370       8      64
+     370     128     128
 # ---------------------------------------------------------------------
 CHOPS
 # NRCHOP  NTCHOP  NXCHOP --(NXCHOP<=NX/2 UNLESS NXCHOP=NX=1,NRCHOP<=NR)
-     350       4      32
-#    350      64      64
+#    350       4      32
+     350      64      64
 # ---------------------------------------------------------------------
 ELL
 #    ELL -----------------------------------------------(MAP PARAMETER)
@@ -54,7 +54,7 @@ VORTEXPAIR_SECTION
 # ---------------------------------------------------------------------
 DT
 #     DT   LIMIT ------------------------------------(DELTAT & ENDTIME)
-     0.01  1000.0
+     0.01  10.0
 # ---------------------------------------------------------------------
 TIME_INTEG
 # SCHEME -----------------(TIME ADVANCEMENT SCHEME !!CURRENTLY DUMMY!!)
@@ -62,16 +62,19 @@ TIME_INTEG
 # ---------------------------------------------------------------------
 VISCOSITY
 #     SW      NU     NUP       P --(SWITCH, VISCOSITY, HYPERV, HELMPOW)
-       0    0.000001  0.000000001    6
+       1    0.000001  0.000000001    6
 # ---------------------------------------------------------------------
 NUP_ADJUST
 #  ADJSW  ADJINT -(HYPERV ADJUSTMENT SWITCH & FOR EVERY 'ADJINT' STEPS)
        0       1
 # ---------------------------------------------------------------------
+BOUSSINESQ
+#     BV0    OMEGA    KAPPA   KAPPAP    ABSW ------(USE A-B FOR LINEAR)
+       1.0     2.0      0.0      0.0      1
+# ---------------------------------------------------------------------
 FREESTREAM
 #     SW      UX      UY      UZ     INT -(SWITCH, UX, UY, UZ, # STEPS)
        0      0.      0.      0.       1
-#      1      0.      0.      0.02498827996      1
 # ---------------------------------------------------------------------
 STRAIN
 # STRAIN ---------------------------------------(NONLINEAR STRAIN TERM)
@@ -92,6 +95,10 @@ CHI0
 #         CHI0_F ---------(FILENAME WHERE CHI0 IS STORED, INITIAL DATA)
         chi0.dat
 # ---------------------------------------------------------------------
+B0
+#           B0_F ---------(FILENAME WHERE   B0 IS STORED, INITIAL DATA)
+          b0.dat
+# ---------------------------------------------------------------------
 PSII
 #         PSII_F ---(FILENAME WHERE PSII IS STORED, POSTPROCESSED DATA)
         psi0.dat
@@ -99,6 +106,10 @@ PSII
 CHII
 #         CHII_F ---(FILENAME WHERE CHII IS STORED, POSTPROCESSED DATA)
         chi0.dat
+# ---------------------------------------------------------------------
+BI
+#           BI_F ---(FILENAME WHERE   BI IS STORED, POSTPROCESSED DATA)
+          b0.dat
 # ---------------------------------------------------------------------
 OUTPUTS
 #     NE --------------------------(NUMBER OF SNAPSHOTS OF PSI AND CHI)

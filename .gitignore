@@ -1,6 +1,7 @@
-/bin/
-/obj/
-/mod/
+/bin/*
+/obj/*
+/mod/*
+/output/*
 /data/*
 *.o
 *.mod

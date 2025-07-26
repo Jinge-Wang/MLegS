@@ -26,18 +26,22 @@ IMPLICIT NONE
 INTEGER     :: II, JJ, KK
 INTEGER     :: M_BAR, NR_MK
 REAL(P8)    :: K_BAR
-
 COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: M_eig
 COMPLEX(P8), DIMENSION(:, :), ALLOCATABLE:: M_mat, EIG_R_mat, EIG_L_mat
+COMPLEX(P8), DIMENSION(:), ALLOCATABLE :: EIG_R_BAR, RUR_BAR, RUP_BAR, UZ_BAR, B_R_BAR
 ! COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: RUR_BAR, RUP_BAR, UZ_BAR, EIG_R_BAR
 ! COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: ROR_BAR, ROP_BAR, OZ_BAR, EIG_L_BAR
 
 ! SCANNING:
 CHARACTER(len=6) :: K_VAL, H_VAL
 CHARACTER(LEN=72):: FILENAME
-INTEGER:: FID
-integer :: num_args
+INTEGER:: FID, num_args, eq_pos, arg_len, stat
 character(len=12), dimension(:), allocatable :: args
+CHARACTER(LEN=32) :: arg_buffer
+CHARACTER(LEN=16) :: param_name
+CHARACTER(LEN=16) :: param_value
+CHARACTER(LEN=256) :: dir_path
+REAL(P8) :: temp_real
 
 ! MPI INITILIZATION
 CALL MPI_INIT_THREAD(MPI_THREAD_SERIALIZED, MPI_THREAD_MODE, IERR)
@@ -62,33 +66,102 @@ CALL READCOM('NOECHO')
 CALL READIN(5)
 
 ! M AND K OF THE EVP & H OF THE Q-VORTEX
+! - Default values
+M_BAR = 1
+K_BAR = 0.d0
+BSNSQ%BV0 = 0.D0
+BSNSQ%OMEGA = 0.D0
 ! - READ FROM COMMAND INPUT
 num_args = command_argument_count()
-IF (num_args .ge. 2) THEN
-    allocate(args(num_args))
-    call get_command_argument(1,args(1))
-    read (args(1),'(I12)') M_BAR
-    call get_command_argument(2,args(2))
-    read (args(2),'(F12.6)') K_BAR
-    IF (num_args .ge. 3) THEN
-        call get_command_argument(3,args(3))
-        read (args(3),'(F12.6)') QPAIR%H(1)
-    ENDIF
-! - DIRECT SETUP
-ELSE
-    M_BAR = 1
-    K_BAR = 0.d0
+IF (num_args .ge. 1) THEN
+    ! Process named arguments in param=value format
+    DO II = 1, num_args
+        CALL get_command_argument(II, arg_buffer)
+        arg_len = LEN_TRIM(arg_buffer)        
+        eq_pos = INDEX(arg_buffer, '=')
+        
+        ! Skip if no equals sign or it's at beginning/end
+        IF (eq_pos <= 1 .OR. eq_pos >= arg_len) THEN
+            IF (MPI_GLB_RANK .EQ. 0) THEN
+                WRITE(*,*) 'Warning: Skipping invalid argument format:', TRIM(arg_buffer)
+                WRITE(*,*) 'Expected format: param=value'
+            END IF
+            CYCLE
+        END IF
+        
+        ! Extract parameter name and value
+        param_name = arg_buffer(1:eq_pos-1)
+        param_value = arg_buffer(eq_pos+1:arg_len)        
+        ! Convert parameter name to lowercase for case-insensitive comparison
+        CALL lowercase(param_name)
+        SELECT CASE(TRIM(param_name))
+            CASE('m')
+                ! For m, read as real and convert to nearest integer
+                READ(param_value, *, IOSTAT=stat) temp_real
+                IF (stat == 0) THEN
+                    M_BAR = NINT(temp_real)  ! Convert to nearest integer
+                ELSE
+                    IF (MPI_GLB_RANK .EQ. 0) THEN
+                        WRITE(*,*) 'Error reading m parameter:', TRIM(param_value)
+                    END IF
+                END IF
+                
+            CASE('k')
+                ! Read k as a real number
+                READ(param_value, *, IOSTAT=stat) K_BAR
+                IF (stat /= 0 .AND. MPI_GLB_RANK .EQ. 0) THEN
+                    WRITE(*,*) 'Error reading k parameter:', TRIM(param_value)
+                END IF
+                
+            CASE('bv')
+                ! Read Brunt-Vaisala frequency as real
+                READ(param_value, *, IOSTAT=stat) BSNSQ%BV0
+                IF (stat /= 0 .AND. MPI_GLB_RANK .EQ. 0) THEN
+                    WRITE(*,*) 'Error reading bv parameter:', TRIM(param_value)
+                END IF
+                
+            CASE('w')
+                ! Read omega parameter as real
+                READ(param_value, *, IOSTAT=stat) BSNSQ%OMEGA
+                IF (stat /= 0 .AND. MPI_GLB_RANK .EQ. 0) THEN
+                    WRITE(*,*) 'Error reading w parameter:', TRIM(param_value)
+                END IF
+                
+            CASE('nr')
+                ! Read nr parameter as integer
+                READ(param_value, *, IOSTAT=stat) temp_real
+                IF (stat == 0) THEN
+                    NRCHOP = NINT(temp_real)  ! Convert to nearest integer
+                ELSE
+                    IF (MPI_GLB_RANK .EQ. 0) THEN
+                        WRITE(*,*) 'Error reading nr parameter:', TRIM(param_value)
+                    END IF
+                END IF
+                
+            CASE DEFAULT
+                ! Unknown parameter
+                IF (MPI_GLB_RANK .EQ. 0) THEN
+                    WRITE(*,*) 'Unknown parameter:', TRIM(param_name)
+                    WRITE(*,*) 'Supported parameters: m, k, bv, w, h, nr'
+                END IF
+        END SELECT
+    END DO
+    
+    ! Display the parameters on rank 0
+    IF (MPI_GLB_RANK .EQ. 0) THEN
+        WRITE(*,*) 'Using parameters:'
+        WRITE(*,*) '  m =', M_BAR
+        WRITE(*,*) '  k =', K_BAR
+        WRITE(*,*) '  bv =', BSNSQ%BV0
+        WRITE(*,*) '  w =', BSNSQ%OMEGA
+        WRITE(*,*) '  nr =', NRCHOP
+    END IF
 ENDIF  
 
 ! I/O
 WRITE(K_VAL,'(F06.2)') K_BAR
 WRITE(H_VAL,'(F06.2)') QPAIR%H(1)
-! IF (MPI_GLB_RANK.EQ.0) 
-WRITE(*,*) MPI_GLB_RANK,': M = ',M_BAR,'; K = ',K_BAR
-
-! BOUSSINESQ
-BSNSQ%BV0 = 5.0
-BSNSQ%OMEGA = -1.d0; !-1.2 
+! WRITE(*,*) MPI_GLB_RANK,': M = ',M_BAR,'; K = ',K_BAR
 
 ! OBTAIN EVP MATRIX, EIGENVALUE, AND EIGENVECTORS
 ! CALL EIG_MATRIX_SERIAL(M_BAR, K_BAR, M_mat, M_eig, EIG_VEC_R = EIG_R_mat, EIG_VEC_L = EIG_L_mat, comm_grp=newcomm, print_switch=.true.)
@@ -100,37 +173,32 @@ IF (MPI_GLB_RANK .NE. 0) THEN
     GOTO 129
 ELSE
     ! SAVE EIGVALS
-    ! open(FID,FILE='./converg/CriticalLayer_240618/qvortex_0.1/eig_MK_'//ITOA3(M_BAR)//'_'//K_VAL &
-    !         //'_NRCHOP_'//ITOA3(NRCHOP)//'.output',STATUS='unknown',ACTION='WRITE',IOSTAT=IERR)
-    open(FID,FILE='./data/bsnsq_eig_MK_'//H_VAL//'_'//ITOA3(M_BAR)//'_'//&
-    K_VAL//'_NRCHOP_'//ITOA3(NRCHOP)//'.output',STATUS='unknown',&
-    ACTION='WRITE',IOSTAT=IERR)
-    DO II = 1,SIZE(M_eig)
-        ! WRITE(FID,*) 'II = ',II,':',REAL(M_eig(II)),AIMAG(M_eig(II))+M_BAR*BSNSQ%OMEGA,'-',EIGRES(EIG_R_mat(:,II),M_BAR)
-        WRITE(FID,*) 'II = ',II,':',M_eig(II),'-',EIGRES(EIG_R_mat(:2*NR_MK,II),M_BAR)
+    WRITE(FILENAME,'(A,F0.2,A,F0.2,A,I0,A,SP,F0.4,A,I0,A)') './data/bsnsq_eig_bv_', &
+        BSNSQ%BV0, '_w_', BSNSQ%OMEGA, '_m_', M_BAR, '_k_', K_BAR, '_nr_', NRCHOP, '.output'
+    open(FID, FILE=TRIM(FILENAME), STATUS='unknown', ACTION='WRITE', IOSTAT=IERR)
+    DO II = 1, SIZE(M_eig)
+        WRITE(FID,*) 'II = ', II, ':', M_eig(II), '-', EIGRES(EIG_R_mat(:2*NR_MK,II), M_BAR)
     ENDDO
     close(FID)
 
-    ! TEST SAVEPERTURB
-    II = 1
-    CALL SAVE_PERTURB_BSNSQ('./data/new_perturb.input', M_BAR, K_BAR, EIG_R_mat(:3*NR_MK,II), M_eig(II))
+    ! Create subfolder for velocity files
+    WRITE(dir_path,'(A,F0.2,A,F0.2,A,I0,A,SP,F0.4)') './data/bsnsq_vel/bv_', &
+        BSNSQ%BV0, '_w_', BSNSQ%OMEGA, '_m_', M_BAR, '_k_', K_BAR
+    CALL SYSTEM('mkdir -p ' // TRIM(dir_path))
+    WRITE(*,*) 'Created directory: ', TRIM(dir_path)
+    
+    ALLOCATE(EIG_R_BAR(2*NR_MK))
+    DO II = 1,SIZE(M_eig)
+        EIG_R_BAR = EIG_R_mat(:2*NR_MK,II)
 
-    ! ! SAVE EIGVECS
-    ! ALLOCATE(EIG_R_BAR(SIZE(EIG_R_mat,1)))
-    ! DO II = 1,SIZE(M_eig)
-
-    !     EIG_R_BAR = EIG_R_mat(:,II)
-
-    !     ! WRITE(*,*) 'II = ',II,':',M_eig(II),'-',EIGRES(EIG_R_BAR,M_BAR)
-    !     ! CALL EIG2VEL(M_BAR, K_BAR, EIG_R_BAR, RUR_BAR, RUP_BAR, UZ_BAR, comm_grp=newcomm)
-    !     ! call SAVE_VEL(RUR_BAR, RUP_BAR, UZ_BAR, './qvortex/data/temp/temp_vel/vel_MK_'//H_VAL//'_'&
-    !     !     //ITOA3(M_BAR)//'_'//K_VAL//'_IND_'//ITOA3(II) &
-    !     !     //'_NRCHOP_'//ITOA3(NRCHOP)//'.output')
-    !     ! ! call SAVE_VEC('./converg/CriticalLayer_240605/PC_o_MK_'//ITOA3(M_BAR)//'_'//K_VAL &
-    !     !             ! //'_IND_'//ITOA3(II)//'_NRCHOP_'//ITOA3(NRCHOP)//'.output',EIG_R_BAR)
-    !     DEALLOCATE(RUR_BAR, RUP_BAR, UZ_BAR)
-    ! ENDDO
-    ! DEALLOCATE(EIG_R_BAR,M_eig)
+        ALLOCATE(B_R_BAR(NR_MK))
+        B_R_BAR = EIG_R_mat(2*NR_MK+1:3*NR_MK,II)
+        CALL EIG2VEL(M_BAR, K_BAR, EIG_R_BAR, RUR_BAR, RUP_BAR, UZ_BAR, comm_grp=newcomm, B_VEC_R=B_R_BAR)
+        WRITE(FILENAME,'(A,A,I0,A)') TRIM(dir_path), '/ind_', II, '.output'
+        CALL SAVE_VEL(RUR_BAR, RUP_BAR, UZ_BAR, TRIM(FILENAME), B_R_BAR)
+        DEALLOCATE(RUR_BAR, RUP_BAR, UZ_BAR, B_R_BAR)
+    ENDDO
+    DEALLOCATE(EIG_R_BAR,M_eig)
 ENDIF
 
 129     CALL MPI_BARRIER(MPI_COMM_WORLD,IERR)
@@ -146,6 +214,19 @@ IF (MPI_GLB_RANK .EQ. 0) THEN
 END IF
 
 CALL MPI_FINALIZE(IERR)
+
+CONTAINS
+  SUBROUTINE lowercase(str)
+    CHARACTER(LEN=*), INTENT(INOUT) :: str
+    INTEGER :: i, diff
+    
+    diff = IACHAR('a') - IACHAR('A')
+    DO i = 1, LEN_TRIM(str)
+      IF (str(i:i) >= 'A' .AND. str(i:i) <= 'Z') THEN
+        str(i:i) = ACHAR(IACHAR(str(i:i)) + diff)
+      END IF
+    END DO
+  END SUBROUTINE lowercase
 
 END PROGRAM EVP_PRINT
 !=======================================================================
