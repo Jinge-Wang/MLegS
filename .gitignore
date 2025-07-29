@@ -7,4 +7,7 @@
 *.mod
 *.exe
 *.out
+*.i90
+*.i
+*.fpp
 .*
