@@ -884,8 +884,8 @@ WRITE(FUNIT,'(I8)') TIM%SCHEME
 WRITE(FUNIT,'(A)') '# ---------------------------------------------------------------------'
 
 WRITE(FUNIT,'(A)') 'VISCOSITY'
-WRITE(FUNIT,'(A)') '#     SW      NU     NUP       P --(SWITCH, VISCOSITY, HYPERV, HELMPOW)'
-WRITE(FUNIT,'(I8,2X,ES10.4,2X,ES10.4,2X,I6)') VISC%SW, VISC%NU, VISC%NUP, VISC%P
+WRITE(FUNIT,'(A)') '#     SW       NU      NUP      P -(SWITCH, VISCOSITY, HYPERV, HELMPOW)'
+WRITE(FUNIT,'(I8,2X,ES11.4,2X,ES11.4,2X,I6)') VISC%SW, VISC%NU, VISC%NUP, VISC%P
 WRITE(FUNIT,'(A)') '# ---------------------------------------------------------------------'
 
 WRITE(FUNIT,'(A)') 'NUP_ADJUST'

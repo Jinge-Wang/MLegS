@@ -10,7 +10,8 @@ ifeq ($(UNAME_S),Linux)
 	FLIB = -mkl
 	# FLIB =  -L${MKLROOT}/lib/intel64 -lmkl_scalapack_lp64 \
 	#        -lmkl_blacs_intelmpi_lp64 -liomp5 -lpthread \
-	#        -lm -ldl	MODULE_FLAG = -module
+	#        -lm -ldl
+	MODULE_FLAG = -module
 	# Set OpenMP flags
 	FFLG += -qopenmp
 	# Add debug flags and sanitization options
