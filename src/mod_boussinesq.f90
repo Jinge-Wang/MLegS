@@ -550,10 +550,14 @@ BN%E = -VDOTPSUB(RUR%E,RUP%E,UZ%E,RBR%E,RBP%E,BZ%E,NI,NJ,NK,RUR%INR,.FALSE.)
 CALL CHOPSET(-3)
 
 ! ADD LINEAR TERMS TO NONLINEAR TERMS
+CALL ALLOCATE(W); W = B
+CALL TOFP(W)
 !> 2OMEGA Z_HAT X U - B Z_HAT
 ROR%E = ROR%E + 2*BSNSQ%OMEGA*RUP%E
 ROP%E = ROP%E - 2*BSNSQ%OMEGA*RUR%E
-OZ%E  = OZ%E - B%E
+
+OZ%E  = OZ%E - W%E
+CALL DEALLOCATE(W)
 !> N_BAR^2 * UZ
 BN%E = BN%E + BSNSQ%BV0**2*UZ%E
 
@@ -574,6 +578,6 @@ CALL DEALLOCATE( W   )
 CALL MPI_BARRIER(MPI_COMM_IVP,IERR)
 RETURN
 END SUBROUTINE BOUSSINESQ_AB
-!=======================================================================
+! ======================================================================
 
 END MODULE

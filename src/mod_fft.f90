@@ -115,6 +115,7 @@ PUBLIC:: MASSEMBLE, MDISASSEMBLE
 ! LOAD/SAVE A MATRIX WITH TYPE(SCALAR) FROM/INTO A SPECIFIED FILE
 PUBLIC:: MLOAD,MSAVE                                               ! SIMLIAR TO MLOAD & MSAVE IN MOD_MISC FOR GENERAL MATRICES, BUT FOR TYPE(SCALAR)
 PUBLIC:: EXCHANGE_3DCOMPLEX_FAST
+PUBLIC:: PRINT_MPI_STRATEGY, MPRINT
 
 ! ========================== MOD_FFT PRIVATE ===========================
 ! ! DECOMPOSE A 1D DOMAIN:
@@ -192,14 +193,8 @@ SUBROUTINE LEGINIT(MPI_COMM_INPUT, M_INPUT)
 ! MPI-ED BY JINGE WANG @ SEP 29 2021
 !=======================================================================
     IMPLICIT NONE
-    ! INTEGER,INTENT(IN):: NRIN,NTHIN,NXIN,NRCHOPIN,NTCHOPIN,NXCHOPIN
-    ! INTEGER,INTENT(IN),OPTIONAL:: MKLINKIN,MINCIN
-
     INTEGER :: MM,KK,KV,I
-    ! REAL(P8):: ZLENIN,ELLIN
-
     INTEGER, DIMENSION(:), ALLOCATABLE:: SUB_GROUPS
-    ! INTEGER, DIMENSION(3):: SIZE_PFP0,SIZE_PFP1,SIZE_PFF0,SIZE_PFF1
 
     INTEGER, OPTIONAL:: M_INPUT,MPI_COMM_INPUT
 
@@ -332,7 +327,6 @@ SUBROUTINE LEGINIT(MPI_COMM_INPUT, M_INPUT)
         SUBCOMM_2 = SUB_GROUPS(1)       
     ENDIF
     DEALLOCATE(SUB_GROUPS)
-    ! WRITE(*,*) MPI_RANK,':',NXCHOPDIM,count_proc(SUBCOMM_1),NTCHOPDIM,count_proc(SUBCOMM_2)
 
     ! FORM MPI SUBARRAY DATA TYPES:
     SIZE_PFP0 = (/local_size(NDIMR,SUBCOMM_1), &
@@ -349,18 +343,210 @@ SUBROUTINE LEGINIT(MPI_COMM_INPUT, M_INPUT)
               local_size(NTCHOPDIM,SUBCOMM_2), &
                                     NXCHOPDIM /)
     TYPE_PFF0 = create_new_type3D(SUBCOMM_1, SIZE_PFF0, 3, MPI_DOUBLE_COMPLEX)
-    !WRITE(*,*) LBOUND(TYPE_PFF0,1)
 
     SIZE_PFF1 = (/                      NDIMR, &
               local_size(NTCHOPDIM,SUBCOMM_2), &
               local_size(NXCHOPDIM,SUBCOMM_1) /)
     TYPE_PFF1 = create_new_type3D(SUBCOMM_1, SIZE_PFF1, 1, MPI_DOUBLE_COMPLEX)
 
-    ! WRITE(*,311) MPI_RANK,local_proc(SUBCOMM_1),local_proc(SUBCOMM_2),SIZE_PFP0,SIZE_PFP1,SIZE_PFF0,SIZE_PFF1
-    ! 311  FORMAT(I3,'(',I3,'-',I3,'):',4(I3,' ',I3,' ',I3,' - '))
-
     RETURN
     END SUBROUTINE LEGINIT
+!=======================================================================
+SUBROUTINE PRINT_MPI_STRATEGY(SAVEDIR)
+!=======================================================================
+! [USAGE]: 
+! PRINT DEBUG INFORMATION SHOWING HOW SCALAR3 VARIABLES ARE DISTRIBUTED
+! AMONG MPI PROCESSORS FOR EACH SPACE TYPE (FFF, PFF, PFP, PPP)
+! [OUTPUTS]:
+! FOR EACH SPACE TYPE:
+! - LOCAL ARRAY DIMENSIONS FOR EACH PROCESSOR
+! - STARTING INDICES FOR EACH PROCESSOR  
+! - GLOBAL ARRAY DIMENSIONS
+! - MPI COMMUNICATOR INFORMATION
+! [NOTE]:
+! OUTPUT IS WRITTEN TO 'savedir/mpi.info' FILE
+!=======================================================================
+    IMPLICIT NONE
+
+    ! MPI process information
+    INTEGER :: TOTAL_PROCS, N1, N2
+    
+    ! Variables for testing and looping
+    CHARACTER(LEN=20), DIMENSION(4) :: SPACE_NAME_LIST = ['PPP_SPACE', 'PFP_SPACE', 'PFF_SPACE', 'FFF_SPACE']
+    INTEGER :: SPACE_ID, II, RANK
+    CHARACTER(LEN=20) :: SPACE_NAME
+    TYPE(SCALAR) :: TEST_SCALAR
+    
+    ! File I/O variables
+    INTEGER :: MPI_INFO_UNIT = 99, STATUS
+    CHARACTER(LEN=200) :: MPI_INFO_FILENAME
+    CHARACTER(LEN=*), OPTIONAL :: SAVEDIR
+
+    IF (.NOT. PRESENT(SAVEDIR)) THEN
+        MPI_INFO_FILENAME = 'mpi.info'
+    ELSE
+        MPI_INFO_FILENAME = TRIM(ADJUSTL(SAVEDIR)) // '/mpi.info'
+    ENDIF
+
+    CALL MPI_COMM_SIZE(MPI_COMM_IVP, TOTAL_PROCS, IERR)
+    N1 = count_proc(SUBCOMM_1)
+    N2 = count_proc(SUBCOMM_2)
+    IF (MPI_RANK == 0) THEN
+        OPEN(UNIT=MPI_INFO_UNIT, FILE=TRIM(MPI_INFO_FILENAME), STATUS='UNKNOWN', &
+            FORM='FORMATTED', IOSTAT=STATUS)
+        
+        IF (STATUS /= 0) THEN
+            WRITE(*,*) 'PRINT_MPI_STRATEGY: Failed to open file: ', TRIM(MPI_INFO_FILENAME)
+            WRITE(*,*) 'Writing to stdout instead...'
+            MPI_INFO_UNIT = 6  ! Use stdout as fallback
+        ELSE
+            WRITE(*,*) 'MPI strategy written to: ', TRIM(MPI_INFO_FILENAME)
+        ENDIF
+
+        WRITE(MPI_INFO_UNIT,*) '=========================================================='
+        WRITE(MPI_INFO_UNIT,*) '              MPI SUBARRAY DISTRIBUTION DEBUG             '
+        WRITE(MPI_INFO_UNIT,*) '=========================================================='
+        WRITE(MPI_INFO_UNIT,*) 'Total MPI Processes:', TOTAL_PROCS
+        WRITE(MPI_INFO_UNIT,*) 'Processor Grid: N1 x N2 =', N1, 'x', N2
+        WRITE(MPI_INFO_UNIT,*) 'SUBCOMM_1 size:', N1, ' (typically for X/Z dimension)'
+        WRITE(MPI_INFO_UNIT,*) 'SUBCOMM_2 size:', N2, ' (typically for Theta dimension)'
+        WRITE(MPI_INFO_UNIT,*) ''
+        WRITE(MPI_INFO_UNIT,*) 'Global Dimensions:'
+        WRITE(MPI_INFO_UNIT,*) '  NDIMR    =', NDIMR,    '  NDIMTH   =', NDIMTH,   '  NDIMX     =', NDIMX
+        WRITE(MPI_INFO_UNIT,*) '  NRCHOPDIM=', NRCHOPDIM,'  NTCHOPDIM=', NTCHOPDIM,'  NXCHOPDIM =', NXCHOPDIM
+        WRITE(MPI_INFO_UNIT,*) '=========================================================='
+        
+        IF (STATUS == 0) CLOSE(MPI_INFO_UNIT)
+    ENDIF
+    CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
+
+    DO II = 1, SIZE(SPACE_NAME_LIST)
+        
+        SPACE_NAME = SPACE_NAME_LIST(II)
+        SPACE_ID = SPACE_MAPPER%GET_ID(SPACE_NAME)        
+        CALL ALLOCATE(TEST_SCALAR, SPACE_ID)
+        
+        DO RANK = 0, TOTAL_PROCS - 1
+            IF (MPI_RANK == RANK) THEN
+                IF (RANK == 0) THEN
+                    OPEN(UNIT=MPI_INFO_UNIT, FILE=TRIM(MPI_INFO_FILENAME), STATUS='OLD', &
+                    POSITION='APPEND', FORM='FORMATTED', IOSTAT=STATUS)
+                    
+                    IF (STATUS == 0) THEN
+                    WRITE(MPI_INFO_UNIT,*) ''
+                    WRITE(MPI_INFO_UNIT,*) '----------------------------------------------------------'
+                    WRITE(MPI_INFO_UNIT,*) TRIM(SPACE_NAME), ' DISTRIBUTION:'
+                    WRITE(MPI_INFO_UNIT,*) '----------------------------------------------------------'
+                    
+                    ! Use the actual space ID for comparison
+                    IF ((SPACE_ID == PPP_SPACE).OR.(SPACE_ID == PFP_SPACE)) THEN
+                        WRITE(MPI_INFO_UNIT,*) 'Layout: [NDIMR/N1, NDIMTH, NDIMX/N2]'
+                        WRITE(MPI_INFO_UNIT,*) 'Global: [', NDIMR, ',', NDIMTH, ',', NDIMX, ']'
+                    ELSEIF (SPACE_ID == PFF_SPACE) THEN
+                        WRITE(MPI_INFO_UNIT,*) 'Layout: [NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1]'
+                        WRITE(MPI_INFO_UNIT,*) 'Global: [', NDIMR, ',', NTCHOPDIM, ',', NXCHOPDIM, ']'
+                    ELSEIF (SPACE_ID == FFF_SPACE) THEN
+                        WRITE(MPI_INFO_UNIT,*) 'Layout: [NRCHOPDIM, NTCHOPDIM/N2, NXCHOPDIM/N1]'
+                        WRITE(MPI_INFO_UNIT,*) 'Global: [', NRCHOPDIM, ',', NTCHOPDIM, ',', NXCHOPDIM, ']'
+                    ENDIF
+
+                    WRITE(MPI_INFO_UNIT,*) ''
+                    WRITE(MPI_INFO_UNIT,'(A4,A3,A19,A3,A19,A3,A18)') &
+                        'Rank', ' | ', 'Local_Size(1,2,3)', ' | ', 'Start_Index(1,2,3)', ' | ', 'SUBCOMM_Ranks(1,2)'
+                    WRITE(MPI_INFO_UNIT,'(A4,A3,A19,A3,A19,A3,A18)') &
+                        '----', '-|-', '-------------------', '-|-', '-------------------', '-|-', '------------------'
+                    CLOSE(MPI_INFO_UNIT)
+                    ENDIF
+                ENDIF
+                
+                OPEN(UNIT=MPI_INFO_UNIT, FILE=TRIM(MPI_INFO_FILENAME), STATUS='OLD', &
+                    POSITION='APPEND', FORM='FORMATTED', IOSTAT=STATUS)
+                
+                IF (STATUS == 0) THEN
+                    IF ((SPACE_ID == PPP_SPACE).OR.(SPACE_ID == PFP_SPACE)) THEN
+                        WRITE(MPI_INFO_UNIT,'(I4,A3,A19,A3,A19,A3,A18)') &
+                            MPI_RANK, ' | ', &
+                            ADJUSTR('(' // TRIM(ITOA3(SIZE(TEST_SCALAR%E,1))) // ',' // &
+                                         TRIM(ITOA3(SIZE(TEST_SCALAR%E,2))) // ',' // &
+                                         TRIM(ITOA3(SIZE(TEST_SCALAR%E,3))) // ')'), ' | ', &
+                            ADJUSTR('(' // TRIM(ITOA3(TEST_SCALAR%INR)) // ',' // &
+                                         TRIM(ITOA3(0)) // ',' // &
+                                         TRIM(ITOA3(TEST_SCALAR%INX)) // ')'), ' | ', &
+                            ADJUSTR('(' // TRIM(ITOA3(local_proc(SUBCOMM_1))) // ',' // &
+                                         TRIM(ITOA3(local_proc(SUBCOMM_2))) // ')')
+                    ELSEIF ((SPACE_ID == PFF_SPACE).OR.(SPACE_ID == FFF_SPACE)) THEN
+                        WRITE(MPI_INFO_UNIT,'(I4,A3,A19,A3,A19,A3,A18)') &
+                            MPI_RANK, ' | ', &
+                            ADJUSTR('(' // TRIM(ITOA3(SIZE(TEST_SCALAR%E,1))) // ',' // &
+                                         TRIM(ITOA3(SIZE(TEST_SCALAR%E,2))) // ',' // &
+                                         TRIM(ITOA3(SIZE(TEST_SCALAR%E,3))) // ')'), ' | ', &
+                            ADJUSTR('(' // TRIM(ITOA3(0)) // ',' // &
+                                         TRIM(ITOA3(TEST_SCALAR%INTH)) // ',' // &
+                                         TRIM(ITOA3(TEST_SCALAR%INX)) // ')'), ' | ', &
+                            ADJUSTR('(' // TRIM(ITOA3(local_proc(SUBCOMM_1))) // ',' // &
+                                         TRIM(ITOA3(local_proc(SUBCOMM_2))) // ')')
+                    ENDIF
+                    CLOSE(MPI_INFO_UNIT)
+                ENDIF
+            
+            ENDIF
+            
+            CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
+
+        ENDDO
+        
+        IF (MPI_RANK == 0) THEN
+            OPEN(UNIT=MPI_INFO_UNIT, FILE=TRIM(MPI_INFO_FILENAME), STATUS='OLD', &
+                POSITION='APPEND', FORM='FORMATTED', IOSTAT=STATUS)
+            
+            IF (STATUS == 0) THEN
+                WRITE(MPI_INFO_UNIT,*) '----------------------------------------------------------'
+                
+                IF ((SPACE_ID == PPP_SPACE).OR.(SPACE_ID == PFP_SPACE)) THEN
+                    WRITE(MPI_INFO_UNIT,*) 'Summary: R-dimension distributed across', N1, 'processors'
+                    WRITE(MPI_INFO_UNIT,*) '         Theta-dimension NOT distributed (all procs have full)'
+                    WRITE(MPI_INFO_UNIT,*) '         X-dimension distributed across', N2, 'processors'
+                ELSEIF ((SPACE_ID == PFF_SPACE).OR.(SPACE_ID == FFF_SPACE)) THEN
+                    WRITE(MPI_INFO_UNIT,*) 'Summary: R-dimension NOT distributed (all procs have full)'
+                    WRITE(MPI_INFO_UNIT,*) '         Theta-dimension distributed across', N2, 'processors'
+                    WRITE(MPI_INFO_UNIT,*) '         X-dimension distributed across', N1, 'processors'
+                ENDIF
+                CLOSE(MPI_INFO_UNIT)
+            ENDIF
+        ENDIF
+        
+        CALL DEALLOCATE(TEST_SCALAR)        
+        CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
+    ENDDO
+
+    ! Print transformation flow (only from rank 0)
+    IF (MPI_RANK == 0) THEN
+        OPEN(UNIT=MPI_INFO_UNIT, FILE=TRIM(MPI_INFO_FILENAME), STATUS='OLD', &
+            POSITION='APPEND', FORM='FORMATTED', IOSTAT=STATUS)
+        
+        IF (STATUS == 0) THEN
+            WRITE(MPI_INFO_UNIT,*) ''
+            WRITE(MPI_INFO_UNIT,*) '=========================================================='
+            WRITE(MPI_INFO_UNIT,*) '                   TRANSFORMATION FLOW                   '
+            WRITE(MPI_INFO_UNIT,*) '=========================================================='
+            WRITE(MPI_INFO_UNIT,*) 'PHYSICAL -> SPECTRAL:'
+            WRITE(MPI_INFO_UNIT,*) '  PPP -> PFP -> PFF -> FFF'
+            WRITE(MPI_INFO_UNIT,*) '  (HORFFT) (VERFFT) (RTRAN)'
+            WRITE(MPI_INFO_UNIT,*) ''
+            WRITE(MPI_INFO_UNIT,*) 'SPECTRAL -> PHYSICAL:'
+            WRITE(MPI_INFO_UNIT,*) '  FFF -> PFF -> PFP -> PPP'
+            WRITE(MPI_INFO_UNIT,*) '  (RTRAN) (VERFFT) (HORFFT)'
+            WRITE(MPI_INFO_UNIT,*) ''
+            WRITE(MPI_INFO_UNIT,*) 'MPI DATA EXCHANGES occur during:'
+            WRITE(MPI_INFO_UNIT,*) '  - VERFFT: Redistribution between PFP<->PFF spaces'
+            WRITE(MPI_INFO_UNIT,*) '  - Uses TYPE_PFP0, TYPE_PFP1, TYPE_PFF0, TYPE_PFF1 datatypes'
+            WRITE(MPI_INFO_UNIT,*) '=========================================================='
+            CLOSE(MPI_INFO_UNIT)
+        ENDIF
+    ENDIF
+
+    RETURN
+    END SUBROUTINE PRINT_MPI_STRATEGY
 !=======================================================================
 SUBROUTINE SALLOC(A,SP)
 !=======================================================================
@@ -384,26 +570,26 @@ SUBROUTINE SALLOC(A,SP)
 
     INTEGER:: MM
 
-    IF(PRESENT(SP)) THEN
-    A%SPACE = SP
+    IF (ASSOCIATED(A%E)) THEN
+        CALL SFREE(A)
+    ENDIF
+
+    IF (PRESENT(SP)) THEN
+        IF (SP < 0 .OR. SP > 3) THEN
+            WRITE(*,*) "SALLOC: INVALID SPACE TAG - ", SP
+            STOP
+        ENDIF
+        A%SPACE = SP
     ELSE
-    A%SPACE = FFF_SPACE
+        A%SPACE = FFF_SPACE
     ENDIF
 
-    IF(ASSOCIATED(A%E)) THEN 
-    NULLIFY ( A%E )
-    ENDIF
 
-    ! RESET INDEX
+    ! Initialize all fields
     A%INR = 0
     A%INTH = 0
     A%INX = 0
-
-    ! IF(A%SPACE .EQ. FFF_SPACE) THEN
-    ! ALLOCATE( A%E(NRCHOPDIM,NTCHOPDIM,NXCHOPDIM),STAT=IERR )
-    ! ELSE
-    ! ALLOCATE( A%E(NDIMR,NDIMTH,NDIMX),STAT=IERR )
-    ! ENDIF
+    A%LN = 0.D0
 
     SELECT CASE(A%SPACE)
     CASE (PFF_SPACE)
@@ -426,7 +612,7 @@ SUBROUTINE SALLOC(A,SP)
 
     IF (IERR.NE.0) THEN
         WRITE(*,*) "SALLOC: ERROR OCCURED - COULD NOT ALLOCATE ARRAY."
-    STOP
+        STOP
     ENDIF
 
     RETURN
@@ -444,15 +630,22 @@ SUBROUTINE SALLOC(A,SP)
 ! MPI-ED BY JINGE WANG @ SEP 29 2021
 !=======================================================================
     IMPLICIT NONE
-    TYPE(SCALAR):: A
+    TYPE(SCALAR),INTENT(INOUT):: A
 
-    IF(.NOT. ASSOCIATED( A%E )) THEN
-    WRITE(*,*) 'SFREE:TRIED TO DEALLOCATE THOUGH NOT ASSOCIATED.'
+    IF (.NOT. ASSOCIATED( A%E )) THEN
+    WRITE(*,*) 'SFREE: TRIED TO DEALLOCATE THOUGH NOT ASSOCIATED.'
     STOP
     ENDIF
 
     DEALLOCATE( A%E )
     NULLIFY ( A%E )
+
+    ! Reset all fileds to safe default values
+    A%SPACE = -1
+    A%INR = 0
+    A%INTH = 0
+    A%INX = 0
+    A%LN = 0.D0
 
     RETURN
     END SUBROUTINE SFREE
@@ -475,7 +668,7 @@ SUBROUTINE COPY0(B,A)
     INTEGER:: MM
 
     IF(.NOT.ASSOCIATED(B%E)) THEN
-        WRITE(*,*) 'COPY0: NO MEMORY FOR LHS.'
+        WRITE(*,*) 'COPY0: SOURCE SCALAR NOT ALLOCATED.'
         STOP
     ENDIF
 
@@ -2302,6 +2495,22 @@ END SUBROUTINE HORFFT
 
     END subroutine MPILOADX
 ! ======================================================================
+    subroutine MPRINT(MESSAGE)
+!=======================================================================
+! [USAGE]:
+! PAUSE ALL MPI RANK AND PRINT MESSAGE. MUST BE CALLED BY ALL RANKS.
+! [PARAMETERS]:
+! MESSAGE >> A CHARACTER STRING TO BE PRINTED
+!=======================================================================
+    IMPLICIT NONE
+    CHARACTER(LEN=*), INTENT(IN) :: MESSAGE
+    CALL MPI_BARRIER(MPI_COMM_IVP,IERR)
+    IF (MPI_RANK == 0) THEN
+    WRITE(*,'(A)') TRIM(MESSAGE)
+    ENDIF
+    CALL MPI_BARRIER(MPI_COMM_IVP,IERR)
+    RETURN
+    END subroutine MPRINT
 
 ! ======================================================================
 !                           UTILITY FUNCTIONS                           
