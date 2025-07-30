@@ -584,7 +584,6 @@ SUBROUTINE SALLOC(A,SP)
         A%SPACE = FFF_SPACE
     ENDIF
 
-
     ! Initialize all fields
     A%INR = 0
     A%INTH = 0
@@ -607,13 +606,13 @@ SUBROUTINE SALLOC(A,SP)
         ALLOCATE( A%E(local_size(NDIMR,SUBCOMM_1), NDIMTH, local_size(NDIMX,SUBCOMM_2)),STAT=IERR )
         A%INR  = local_index(NDIMR,SUBCOMM_1)
         A%INX  = local_index(NDIMX,SUBCOMM_2)
-
     END SELECT
 
     IF (IERR.NE.0) THEN
         WRITE(*,*) "SALLOC: ERROR OCCURED - COULD NOT ALLOCATE ARRAY."
         STOP
     ENDIF
+    A%IS_ALLOCATED = .TRUE.
 
     RETURN
     END SUBROUTINE SALLOC
@@ -631,13 +630,14 @@ SUBROUTINE SALLOC(A,SP)
 !=======================================================================
     IMPLICIT NONE
     TYPE(SCALAR),INTENT(INOUT):: A
+    INTEGER:: DEALLOC_STATUS
 
     IF (.NOT. ASSOCIATED( A%E )) THEN
     WRITE(*,*) 'SFREE: TRIED TO DEALLOCATE THOUGH NOT ASSOCIATED.'
     STOP
     ENDIF
 
-    DEALLOCATE( A%E )
+    IF (A%IS_ALLOCATED) DEALLOCATE( A%E , STAT=DEALLOC_STATUS )
     NULLIFY ( A%E )
 
     ! Reset all fileds to safe default values
@@ -646,6 +646,7 @@ SUBROUTINE SALLOC(A,SP)
     A%INTH = 0
     A%INX = 0
     A%LN = 0.D0
+    A%IS_ALLOCATED = .FALSE.
 
     RETURN
     END SUBROUTINE SFREE
@@ -668,7 +669,11 @@ SUBROUTINE COPY0(B,A)
     INTEGER:: MM
 
     IF(.NOT.ASSOCIATED(B%E)) THEN
-        WRITE(*,*) 'COPY0: SOURCE SCALAR NOT ALLOCATED.'
+        WRITE(*,*) 'COPY0: NO MEMORY FOR LHS.'
+        STOP
+    ENDIF
+    IF (.NOT. A%IS_ALLOCATED) THEN
+        WRITE(*,*) 'COPY0: RHS IS NOT ALLOCATED.'
         STOP
     ENDIF
 
@@ -1165,7 +1170,8 @@ END SUBROUTINE HORFFT
     A%INTH = B%INTH
     A%INX = B%INX
     NULLIFY(B%E)
-    A%SPACE=FFF_SPACE
+    A%SPACE = FFF_SPACE
+    A%IS_ALLOCATED = .TRUE.
 
     ! MAPPED LEGENDRE SPACE TO PHYSICAL:
     ELSE                                                               
@@ -1238,6 +1244,7 @@ END SUBROUTINE HORFFT
     A%INR = B%INR
     A%INTH = B%INTH
     A%INX = B%INX
+    A%IS_ALLOCATED = .TRUE.
 
     ENDIF
     
@@ -2327,6 +2334,7 @@ END SUBROUTINE HORFFT
     A%INR = 0
     A%INTH = 0
     A%INX = 0
+    A%IS_ALLOCATED = .TRUE.
 
     CLOSE(7)
 
@@ -2492,6 +2500,8 @@ END SUBROUTINE HORFFT
         CALL MPI_FILE_READ_ALL(MPIFILE, local_scalar%E, LOCAL_ARRAYSIZE, MPI_DOUBLE_COMPLEX, MPISTATUS, IERR)
         CALL MPI_FILE_CLOSE(MPIFILE, IERR)
         CALL MPI_TYPE_FREE(FILEBLK, IERR)
+        
+        local_scalar%IS_ALLOCATED = .TRUE.
 
     END subroutine MPILOADX
 ! ======================================================================
