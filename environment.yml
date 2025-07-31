@@ -1,0 +1,19 @@
+name: mlegs
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python
+  - numpy
+  - scipy
+  - matplotlib
+  - pandas
+  - h5py
+  - jupyter
+  - jupyterlab
+  - seaborn
+  - tqdm
+  - pip
+  - pip:
+    - plotly
+    - ipywidgets
