@@ -373,21 +373,19 @@ SUBROUTINE PRINT_ENERGY_SPECTRUM(PSI,CHI,TAG)
       & IOSTAT=FILESTATUS, POSITION='APPEND')
       TIME = TIM%T
       !  WRITE(666, 787) TIME , (ESPEC(MM,1),MM=1,NRCHOP)        ! Only record m = 0 mode
-      WRITE(666, 787) TIME , (SUM(ESPEC(MM,:)),MM=1,NTCHOP)          
+      WRITE(666, '(*(E24.16,1X))') TIME, (SUM(ESPEC(MM,:)),MM=1,NTCHOP)         
       CLOSE(666)     
 
       OPEN(UNIT=667,FILE=TRIM(ADJUSTL(FILES%SAVEDIR))//'especData_K.dat',STATUS='UNKNOWN',&
       & IOSTAT=FILESTATUS, POSITION='APPEND')
       TIME = TIM%T
       !  WRITE(667, 788) TIME , (ESPEC(1,KK),KK=1,NXCHOP)        ! Only record k = 0 mode
-      WRITE(667, 788) TIME , (SUM(ESPEC(:,KK)),KK=1,NXCHOPDIM)              
+      WRITE(667, '(*(E24.16,1X))') TIME, (SUM(ESPEC(:,KK)),KK=1,NXCHOPDIM)            
       CLOSE(667)  
     ENDIF
 
     DEALLOCATE(ESPEC)
 111 FORMAT(7E14.6)
-787 FORMAT(100E24.16)
-788 FORMAT(100E24.16)
 
 END SUBROUTINE PRINT_ENERGY_SPECTRUM
 ! ======================================================================

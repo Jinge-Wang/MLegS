@@ -122,9 +122,8 @@ do it=1,iii
 
    !> admam-bashforth
    call adamsb(psi_tot,chi_tot,b_per,dpsi,dchi,db)
-   call mpi_barrier(MPI_COMM_IVP,IERR)
-   write(*,*) 'STEP: ',it,'/',iii, 'rank: ',MPI_RANK
 
+   !> hyperviscosity
    call HYPERV3(psi_tot,chi_tot,b_per)
    call diagnost(psi_tot,chi_tot)
 

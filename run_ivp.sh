@@ -6,7 +6,7 @@
 #SBATCH --nodes=1             # Total # of nodes 
 #SBATCH --ntasks-per-node=16  # Total # of MPI tasks per node
 #SBATCH --cpus-per-task=2     # cpu-cores per task (default value is 1, >1 for multi-threaded tasks)
-#SBATCH --time=00:05:00       # Total run time limit (hh:mm:ss) - longer for IVP
+#SBATCH --time=00:30:00       # Total run time limit (hh:mm:ss) - longer for IVP
 #SBATCH -J bsnsq_ivp          # Job name
 #SBATCH -o ivp.o%j            # Name of stdout output file
 #SBATCH -e ivp.e%j            # Name of stderr error file
@@ -50,6 +50,12 @@ if [ ! -f "read.input" ]; then
 fi
 
 echo "All required files found. Starting IVP simulation..."
+
+# Step 0: Clean up old output files
+if ls output/* 1> /dev/null 2>&1; then
+    echo "Removing old output files in output/ directory"
+    rm output/*
+fi
 
 # Step 1: Run initialization
 echo "=========================================================="
