@@ -270,7 +270,7 @@ SUBROUTINE LEGINIT(MPI_COMM_INPUT, M_INPUT)
     TFM%dR(NR) = TFM%dR(NR-1)
 
     !ALLOCATE( TFM%LN(NR) )
-    TFM%LN = -LOG(1-TFM%X)
+    TFM%LN = -LOG(1-TFM%X) ! -LOG(2L^2/(r^2+L^2)) = LOG((r^2+L^2)/(2L^2)) IS P_L(r) AS IN EQN (54) OF MATSUSHIMA & MARCUS (1997)
 
     !ALLOCATE( TFM%NORM(NRCHOPDIM+14,NTCHOPDIM) )
     TFM%NORM = LEG_NORM(NRCHOPDIM+14, M )   ! BECOME INACCURATE AT HIGHER SPECTRAL MODES AND SHOULD BE REPLACED BY TFM%LOGNORM INSTEAD
@@ -1230,9 +1230,9 @@ END SUBROUTINE HORFFT
 
     IF(A%INTH.EQ.0 .AND. A%INX.EQ.0) THEN
         IF(A%LN.NE.0.0) THEN
-            WRITE(*,*) 'RTRAN:TO PHYSICAL SPACE THOUGH LOGTERM IS NONZERO.'
+            WRITE(*,*) 'RTRAN: TO PHYSICAL SPACE THOUGH LOGTERM IS NONZERO.'
             WRITE(*,*) 'LOGTERM=',A%LN
-            B%E(1:NR,1,1)=B%E(1:NR,1,1)+A%LN*TFM%LN(1:NR)
+            B%E(1:NR,1,1)=B%E(1:NR,1,1)+A%LN*TFM%LN(1:NR) ! ADD LOG TERM BACK TO THE FUNCTION IN PHYSICAL SPACE
         ENDIF
     ENDIF
 
@@ -1252,178 +1252,6 @@ END SUBROUTINE HORFFT
     RETURN
     END SUBROUTINE RTRAN
 !=======================================================================
-!     SUBROUTINE RTRAN2(A,IS) ! RTRAN FOR TEST PURPOSE
-! !=======================================================================
-! ! [USAGE]: 
-! ! INSTEAD OF USING MATRIX-MATRIX MULTIPLICATION, PERFORM MATRIX-VECTOR
-! ! MULTIPLICATION IN FOR LOOP, WHICH FORCES LAPACK'S ZGEMM TO PRODUCE IDE
-! ! -NTICAL RESULTS (NO MACHINE ROUND-OFF DIFFERENCES) WITH DIFFERENT NUMB
-! ! -ER OF PROCESSORS.
-! ! PERFORM MAPPED LEGENDRE TRANSFORM WITH RESPECT TO X (OR R) DIRECTION
-! ! [PARAMETERS]:
-! ! A >> TYPE(SCALAR) VARIABLE CONTAIN (X,THETA,Z) VALUES
-! ! IS >> FORWARD OR BACKWARD FFT (1: BACKWARD, -1: FORWARD)
-! ! [NOTES]:
-! ! 1. WHEN GOING FROM FFF SPACE TO PPP SPACE, EXPECTED CALLING SEQUENCE =
-! !    CALL RTRAN(A,1) (FFF -> PFF)
-! !    CALL VERFFT(A,1) (PFF -> PFP)
-! !    CALL HORFFT(A,1) (PFP -> PPP)
-! ! 2. WHEN GOING FROM PPP SPACE TO FFF SPACE, EXPECTED CALLING SEQUENCE =
-! !    CALL HORFFT(A,-1) (PPP -> PFP)
-! !    CALL VERFFT(A,-1) (PFP -> PFF)
-! !    CALL RTRAN(A,-1) (PFF -> FFF)
-! ! [DEPENDENCIES]
-! ! 1. ALLOCATE(~) @ MOD_SCALAR3
-! ! 2. CHOPDO(~) @ MOD_SCALAR3
-! ! 3. DEALLOCATE(~)  @ MOD_SCALAR3
-! ! 4. OPERATOR(.MUL.) @ MOD_EIG
-! ! [UPDATES]:
-! ! FFT SUBROUTINES ARE REPLACED WITH FFTW3 LIBRARY @ NOV NOV 11 2020
-! ! MPI-ED BY JINGE WANG @ SEP 29 2021
-! !=======================================================================
-!     IMPLICIT NONE
-!     TYPE(SCALAR),INTENT(INOUT):: A
-!     INTEGER,INTENT(IN):: IS
-
-!     TYPE(SCALAR):: B
-!     COMPLEX(P8),DIMENSION(:,:),ALLOCATABLE:: BE,BO
-!     INTEGER:: NN,I,MM
-!     INTEGER:: XSIZE, THSIZE
-
-!     ! MPI PREP
-!     XSIZE = SIZE(A%E,3)
-!     THSIZE = SIZE(A%E,2)
-
-!     ! PHYSICAL TO MAPPED LEGENDRE SPACE:
-!     IF(IS.EQ.-1) THEN                                                  
-!     IF(A%SPACE .NE. PFF_SPACE) THEN
-!         IF (MPI_RANK.EQ.0) WRITE(*,*) 'RTRAN: NOT IN PFF_SPACE.'
-!         STOP
-!     ENDIF
-
-!     CALL ALLOCATE(B,FFF_SPACE)
-!     CALL CHOPDO(B)
-
-!     ! ALLOCATE( BE(NRH,NXCHOPDIM) )
-!     ! ALLOCATE( BO(NRH,NXCHOPDIM) )
-!     ALLOCATE( BE(NRH,XSIZE) )
-!     ALLOCATE( BO(NRH,XSIZE) )
-
-! !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(NN,BE,BO,MM,I)
-!     DO MM=1, THSIZE !NTCHOP
-
-!         NN = NRCHOPS(MM+A%INTH)
-!         IF(NN.LT.1) CYCLE
-
-!         DO I=1,NRH
-
-!             ! A%E: NDIMR, NTCHOPDIM/N2, NXCHOPDIM/N1
-!             BE(I,:) = (A%E(I,MM,:)+A%E(NR-I+1,MM,:))*TFM%W(I)
-!             BO(I,:) = (A%E(I,MM,:)-A%E(NR-I+1,MM,:))*TFM%W(I)
-
-!         ENDDO
-
-!         ! TFM%PF(RadialCollocPts, RadialModes, AzimuthalModes)
-!         DO I=1,XSIZE
-!             B%E(1:NN:2,MM,I:I)=TRANSPOSE(TFM%PF(:NRH,1:NN:2,MM+A%INTH)) .MUL. BE(:,I:I)
-            
-!             IF (NN.GE.2) THEN
-!             B%E(2:NN:2,MM,I:I)=TRANSPOSE(TFM%PF(:NRH,2:NN:2,MM+A%INTH)) .MUL. BO(:,I:I)
-!             ENDIF
-!         ENDDO
-
-!     ENDDO
-! !$OMP END PARALLEL DO
-
-!     CALL DEALLOCATE(A)
-
-!     A%E => B%E
-!     A%INR = B%INR
-!     A%INTH = B%INTH
-!     A%INX = B%INX
-!     NULLIFY(B%E)
-!     A%SPACE=FFF_SPACE
-
-!     DEALLOCATE( BE,BO )
-
-
-!     ! MAPPED LEGENDRE SPACE TO PHYSICAL:
-!     ELSE                                                               
-!     IF(A%SPACE .NE. FFF_SPACE) THEN
-!         IF (MPI_RANK.EQ.0) WRITE(*,*) 'RTRAN: NOT IN FFF_SPACE'
-!         STOP
-!     ENDIF
-
-!     CALL ALLOCATE(B,PFF_SPACE)
-!     CALL CHOPDO(B)
-!     B%LN=0
-
-!     ALLOCATE( BE(NRH,XSIZE) ) !NXCHOPDIM) )
-!     ALLOCATE( BO(NRH,XSIZE) ) !NXCHOPDIM) )
-
-! !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(NN,BE,BO,MM,I)
-!     DO MM=1,THSIZE !NTCHOP
-!         NN = NRCHOPS(MM+A%INTH)
-
-!         IF(NN.GE.1) THEN
-!             DO I=1,XSIZE
-!                 BE(:,I:I)= TFM%PF(:NRH,1:NN:2,MM+A%INTH) .MUL. A%E(1:NN:2,MM,I:I)!NXCHOPDIM)
-!             ENDDO
-!         ELSE
-!         BE=0
-!         ENDIF
-
-!         IF(NN.GE.2) THEN
-!             DO I=1,XSIZE
-!                 BO(:,I:I)= TFM%PF(:NRH,2:NN:2,MM+A%INTH) .MUL. A%E(2:NN:2,MM,I:I)!NXCHOPDIM)
-!             ENDDO
-!         ELSE
-!         BO=0
-!         ENDIF
-
-!         ! B%E(1:NRH,MM,1:NXCHOP)= BE(:,:NXCHOP)+BO(:,:NXCHOP)
-
-!         ! IF(NXCHOP .NE. 1) THEN
-!         ! B%E(1:NRH,MM,NXCHOPH:NX)= BE(:,NXCHOP+1:)+BO(:,NXCHOP+1:)
-!         ! B%E(NR:NRH+1:-1,MM,NXCHOPH:NX)= BE(:,NXCHOP+1:)-BO(:,NXCHOP+1:)
-!         ! ENDIF
-
-!         ! B%E(NR:NRH+1:-1,MM,:NXCHOP)= BE(:,:NXCHOP)-BO(:,:NXCHOP)
-
-!         B%E(1:NRH,MM,:)= BE(:,:)+BO(:,:)
-!         B%E(NR:NRH+1:-1,MM,:)= BE(:,:)-BO(:,:)
-
-!     ENDDO
-! !$OMP END PARALLEL DO
-    
-!     ! B%E(:,NTCHOP+1:,:)=0
-!     ! B%E(:,:NTCHOP,NXCHOP+1:NXCHOPH-1)=0
-!     B%E(:,MAX(1,NTCHOP-A%INTH+1):,:) = CMPLX(0.D0,0.D0)
-
-!     IF(A%INTH.EQ.0 .AND. A%INX.EQ.0) THEN
-!         IF(A%LN.NE.0.0) THEN
-!             WRITE(*,*) 'RTRAN:TO PHYSICAL SPACE THOUGH LOGTERM IS NONZERO.'
-!             WRITE(*,*) 'LOGTERM=',A%LN
-!             B%E(1:NR,1,1)=B%E(1:NR,1,1)+A%LN*TFM%LN(1:NR)
-!         ENDIF
-!     ENDIF
-
-!     CALL DEALLOCATE(A)
-
-!     A%E => B%E
-!     NULLIFY(B%E)
-!     A%SPACE = PFF_SPACE
-!     A%INR = B%INR
-!     A%INTH = B%INTH
-!     A%INX = B%INX
-
-!     DEALLOCATE( BE,BO )
-!     ENDIF
-    
-!     CALL CHOPDO(A)
-!     RETURN
-!     END SUBROUTINE RTRAN2
-! !=======================================================================
     SUBROUTINE TOFF(A)
 !=======================================================================
 ! [USAGE]: 

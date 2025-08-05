@@ -85,6 +85,22 @@ INTEGER,PUBLIC,PARAMETER:: FFF_SPACE=1                             ! (X (OR R), 
 INTEGER,PUBLIC,PARAMETER:: PFP_SPACE=2                             ! (X (OR R), THETA, Z) = (PHYS.          , FUNC. (FOURIER), PHYS.          )
 INTEGER,PUBLIC,PARAMETER:: PFF_SPACE=3                             ! (X (OR R), THETA, Z) = (PHYS.          , FUNC. (FOURIER), FUNC. (FOURIER))
 
+! 5> ERROR FLAGS
+TYPE ERROR_FLAGS
+  INTEGER :: SCALAR3 = 1
+  INTEGER :: SCALAR3_ISNAN = 10
+  INTEGER :: SCALAR3_DEALIASING = 11
+  INTEGER :: SCALAR3_DIVERGENCE = 12
+
+  INTEGER :: TRANSFORM = 2
+
+  INTEGER :: LEGOPERATOR = 3
+  INTEGER :: DEPRECATED = 30
+  INTEGER :: CALCULATION = 31
+  INTEGER :: DIMMISMATCH = 32
+END TYPE
+TYPE(ERROR_FLAGS), PUBLIC :: ERR_FLAGS
+
 !=======================================================================
 !======================== PUBLIC DECLARATION ===========================
 !=======================================================================
@@ -96,8 +112,10 @@ PUBLIC:: CALCAT1,CALCAT0                                           ! A VALUE IS 
 ! INTEGRATION OF A FUNCTION OVER A FULL-(~) OR HALF-(~H) DOMAIN (ONLY BE CALLED BY ROOT PROC)
 PUBLIC:: INTEG                                                     ! AVAILABLE ONLY WHEN SPACE = FFF
 PUBLIC:: INTEGH                                                    ! AVAILABLE ONLY WHEN SPACE = PFF
+PUBLIC:: INTEG_MK                                                  ! AVAILABLE ONLY WHEN SPACE = PFF
 ! PRODUCT & INTEGRATE F=A*B*(1-X)**2. OVER THE DOMAIN
 PUBLIC:: PRODCT                                                    ! AVAILABLE ONLY WHEN SPACE = PFF
+PUBLIC:: PRODCT_MK                                                 ! AVAILABLE ONLY WHEN SPACE = PFF
 ! TEST IF A SCALAR CONTAINS NAN
 PUBLIC:: TEST_NAN
 
@@ -308,10 +326,12 @@ IF(F%SPACE.NE.FFF_SPACE) THEN
 ENDIF      
 
 IF ((F%INTH.EQ.0).AND.(F%INX.EQ.0)) THEN
+  ! INTEGRATION OF R*LOGTERM GOES TO INFINITY
   IF(F%LN.NE.0.0) THEN
     WRITE(*,*) 'INTEG: LOGTERM NOT ZERO'
     WRITE(*,*) 'LOGTERM=',F%LN
   ENDIF
+  ! ADDITIONAL FACTOR OF 2 COMES FROM (N^0_0)^2 = 2
   INTEG = 4*PI*ZLEN*ELL2*REAL(F%E(1,1,1))*TFM%NORM(1,1)
 ELSE
   INTEG = 0
@@ -321,6 +341,47 @@ CALL MPI_ALLREDUCE(MPI_IN_PLACE, INTEG, 1, MPI_DOUBLE_PRECISION, &
 
 RETURN
 END FUNCTION INTEG
+!=======================================================================
+FUNCTION INTEG_MK(F)
+!=======================================================================
+! [USAGE]:
+! INTEGRATION OF A FUNCTION OVER R FOR EACH M AND K
+! CALL IN PFF_SPACE
+! INTEGRATED FUNCTION G IS IN THE FORM G = F*(1-MU)^2
+! [INPUTS]:
+! F >> A FUNTION INPUT FOR INTEGRATION (ACTUAL INTEGRATION IS DONE ON G)
+! [OUTPUTS]:
+! INTEG_MK >> INTEGRATION EQUAL TO INT(G(R,PHI,Z) RDR)
+!========================================================================
+IMPLICIT NONE
+TYPE(SCALAR),INTENT(IN):: F
+COMPLEX(P8),DIMENSION(NTCHOP,NXCHOPDIM):: INTEG_MK
+INTEGER:: MM,KK,COUNT
+REAL(P8):: DOT_REAL, DOT_IMAG
+
+IF(F%SPACE.NE.PFF_SPACE) THEN
+  IF (MPI_RANK.EQ.0) THEN
+    WRITE(*,*) 'INTEG_MK: NOT IN PFF_SPACE'
+  ENDIF
+  STOP
+ENDIF
+
+INTEG_MK = CMPLX(0.D0,0.D0)
+DO MM = 1,SIZE(F%E,2) !NTCHOP
+  DO KK = 1,SIZE(F%E,3) !NXCHOP
+    DOT_REAL = DOT_PRODUCT(REAL(F%E(:NR,MM,KK)),TFM%W)
+    DOT_IMAG = DOT_PRODUCT(AIMAG(F%E(:NR,MM,KK)),TFM%W)
+    INTEG_MK(MM+F%INTH,KK+F%INX) = &
+      ELL2 * (DOT_REAL + IU*DOT_IMAG)
+  ENDDO
+ENDDO
+
+COUNT = NTCHOP*NXCHOPDIM
+CALL MPI_ALLREDUCE(MPI_IN_PLACE, INTEG_MK, COUNT, &
+                  MPI_DOUBLE_COMPLEX, MPI_SUM, MPI_COMM_IVP, IERR)
+
+RETURN
+END FUNCTION INTEG_MK
 !=======================================================================
 FUNCTION PRODCT(A,B)
 !=======================================================================
@@ -352,6 +413,12 @@ IF(A%SPACE.NE.PFF_SPACE .OR. B%SPACE.NE.PFF_SPACE) THEN
   STOP
 ENDIF
 
+! IF EITHER OR BOTH A AND B CONTAINS LOGTERM, THE INTEGRATION WILL ALWAYS
+! DIVERGE TO INFINITY. SO, WE CHECK IF THE LOGTERM IS ZERO.
+! NOTE: FOR G(R), INT[LOGTERM*G(R)*R]DR DIVERGES WHENEVER G(R) DECAYS SLOWER
+! THAN 1/(R*LN(R)) AS R -> INFINITY. SINCE THE PHYSICAL SPACE FUNCTION 
+! DECAYS ALGEBRAICALLY (I.E. R^-|M|), THE INTEGRATION WILL DIVERGE WHENEVER
+! THE FUNCTION CONTAINS |M|<=2 MODES, WHICH IS ALMOST ALWAYS THE CASE.
 IF(A%LN.NE.0.0 .OR. B%LN.NE.0.0) THEN
   WRITE(*,*) 'PRODCT:LOGTERM NOT ZERO'
 ENDIF
@@ -389,6 +456,62 @@ PRODCT = 4*PI*ZLEN*ELL2*PRODCT*TFM%NORM(1,1)
 RETURN
 END FUNCTION PRODCT
 !=======================================================================
+FUNCTION PRODCT_MK(A,B)
+! ======================================================================
+! [USAGE]:
+! CALCULATE THE PRODUCT AND INTEGRATE OVER THE DOMAIN FOR EACH M AND K
+! CALL IN R PHYSICAL / PHI,Z-FOURIER SPACE
+! WHAT IS ACTUALLY INTEGRATED IS G = A*B*(1-MU)^2
+! [INPUTS]:
+! A >> FIRST SCALAR-TYPE VARIABLE FOR INTEGRATION
+! B >> SECOND SCALAR-TYPE VARIABLE FOR INTEGRATION
+! [OUTPUTS]:
+! PRODCT_MK >> INTEGRATION EQUAL TO INT(G(R,PHI,Z) RDRR DPHI DZ)
+! DISTRIBUTED OVER M AND K BASED ON THE PARSEVAL'S THEOREM
+! ======================================================================
+IMPLICIT NONE
+TYPE(SCALAR):: A,B
+REAL(P8):: WK1(NR)
+REAL(P8):: PRODCT_MK(NTCHOP,NXCHOPDIM) !NX)
+INTEGER:: MM,KK,COUNT
+
+IF(A%SPACE.NE.PFF_SPACE .OR. B%SPACE.NE.PFF_SPACE) THEN
+  IF (MPI_RANK.EQ.0) THEN
+      PRINT *,'ERROR: PRODCT_MK() -- NOT IN PFF_SPACE.'
+      PRINT *,'A%SPACE, B%SPACE = ',A%SPACE,B%SPACE
+  ENDIF
+  STOP
+ENDIF
+
+IF ((A%INTH.EQ.0).AND.(A%INX.EQ.0)) THEN
+  IF(ABS(A%LN)>1.0E-8 .OR. ABS(B%LN)>1.0E-8) THEN
+      PRINT *,'WARNING: PRODCT_MK() -- LOGTERM NOT ZERO.'
+      PRINT *,'A%LN, B%LN = ',A%LN,B%LN
+  ENDIF
+ENDIF
+
+PRODCT_MK = 0.D0
+DO MM=1,SIZE(A%E,2) !NTCHOP
+  DO KK=1,SIZE(A%E,3) !NXCHOP
+      WK1 = REAL( A%E(:NR,MM,KK)*CONJG(B%E(:NR,MM,KK)) )
+      ! {MM,KK}&{-MM,-KK} combined
+      ! note: We save non-negative M's, but all K's.
+      !       So, for {0,KK}, we should not add {0,-KK} during the calculation,
+      !       as {0,-KK} is actually saved. Hence, all MM = 0 modes' product is
+      !       off by a factor of 2.
+      PRODCT_MK(MM+A%INTH,KK+A%INX) = &
+              4.0_P8*PI*ZLEN0*ELL2*DOT_PRODUCT(WK1,TFM%W)
+  END DO
+END DO
+
+COUNT = NTCHOP*NXCHOPDIM
+CALL MPI_ALLREDUCE(MPI_IN_PLACE, PRODCT_MK, COUNT, &
+                  MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_IVP, IERR)
+PRODCT_MK(1,:) = 0.5_P8*PRODCT_MK(1,:)
+
+RETURN
+END FUNCTION PRODCT_MK
+! ======================================================================
 FUNCTION INTEGH(F,AIN,BIN)
 !=======================================================================
 ! [USAGE]:
@@ -593,7 +716,7 @@ IF (HAS_NAN) THEN
   IF (NAN_COUNT > 10) THEN
     WRITE(*,'(A,I4,A,I8,A)') 'Rank ', MPI_RANK, ': (Only first 10 of ', NAN_COUNT, ' NaNs shown)'
   END IF
-  CALL MPI_ABORT(MPI_COMM_IVP, 1, IERR)  ! Abort the program if NaNs found
+  CALL MPI_ABORT(MPI_COMM_IVP, ERR_FLAGS%SCALAR3_ISNAN, IERR)  ! Abort the program if NaNs found
 END IF
 
 ! ! If no NaNs found, print confirmation

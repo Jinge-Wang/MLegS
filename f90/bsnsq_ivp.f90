@@ -30,7 +30,6 @@ logical:: file_save = .TRUE.
 
 ! REFINEMENT
 character(LEN=200):: FILENAME
-real(p8), allocatable, dimension(:,:):: EMK, EMK0
 
 ! INITIALIZE MPI
 CALL MPI_INIT_THREAD(MPI_THREAD_SERIALIZED,MPI_THREAD_MODE,IERR)
@@ -67,8 +66,6 @@ IF (MPI_RANK.EQ.0) THEN
    ENDDO
 92 FORMAT('(',I3,',',F9.2,') - (#',I3,', #',I3,')')
 ENDIF
-allocate(EMK(NTCHOP,NXCHOPDIM)) ! energy spectrum
-allocate(EMK0(NTCHOP,NXCHOPDIM))
 
 ! INITIAL CONDITIONS
 status(1,1)=0
@@ -106,10 +103,10 @@ call rich(psi_tot,chi_tot,b_per,dpsi,dchi,db)
 
 !> 2nd diagnostic
 call diagnost(psi_tot,chi_tot)
-call PRINT_ENERGY_SPECTRUM(psi_tot,chi_tot,1)
+! call PRINT_ENERGY_SPECTRUM(psi_tot,chi_tot,1)
 
 !> save initial energy after Richardson step
-EMK0 = ENERGY_SPEC_MODIFIED(psi_tot,chi_tot)
+CALL CALC_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
 
 !> startup
 !dpsi and dchi are initially empty, then they are assigned 
@@ -121,35 +118,14 @@ files%n = 1
 do it=1,iii
 
    !> admam-bashforth
-   call adamsb(psi_tot,chi_tot,b_per,dpsi,dchi,db)
+   call ADAMSB(psi_tot,chi_tot,b_per,dpsi,dchi,db)
 
    !> hyperviscosity
    call HYPERV3(psi_tot,chi_tot,b_per)
-   call diagnost(psi_tot,chi_tot)
+   call DIAGNOST(psi_tot,chi_tot)
 
    !> save energy spectrum
-   EMK = ENERGY_SPEC_MODIFIED(psi_tot,chi_tot)
-   IF ((MOD(it,100).EQ.0).AND.(MPI_RANK.EQ.0)) THEN
-
-         WRITE(*,*) 'STEP: ',it,'/',iii
-
-         ! save energy vs m
-         OPEN(UNIT=667,FILE=TRIM(ADJUSTL(FILES%SAVEDIR))//'especData_M.dat',STATUS='UNKNOWN',&
-            & IOSTAT=FILESTATUS, POSITION='APPEND')
-         WRITE(667, 788) tim%t, (SUM(EMK(MM,:)),MM=1,NTCHOP)          
-         CLOSE(667)     
-
-         ! save energy vs k
-         OPEN(UNIT=668,FILE=TRIM(ADJUSTL(FILES%SAVEDIR))//'especData_K.dat',STATUS='UNKNOWN',&
-            & IOSTAT=FILESTATUS, POSITION='APPEND')
-         WRITE(668, 788) tim%t, (SUM(EMK(:,KK)),KK=1,NXCHOPDIM)              
-         CLOSE(668)  
-         788 FORMAT(*(E23.15))
-
-   ENDIF
-
-   !> save energy
-   EMK0 = EMK
+   CALL CALC_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
 
    !> output
    if ((files%t(files%n).le.tim%t) .AND. (file_save)) then

@@ -566,7 +566,7 @@ IF ((A%INTH.LT.2).AND.(A%INTH+SIZE(A%E,2).GE.2)) THEN
   IF(ABS(A%E(NRCHOPS(2),MM,1)).GT.1.E-15) THEN
     WRITE(*,*) 'XXDX: OPERATION NOT EXACT'
     WRITE(*,*)  A%E(NRCHOPS(2),2,1)
-    ! CALL MPI_ABORT(MPI_COMM_IVP,1,IERR) ! 1 is just a place holder
+    ! CALL MPI_ABORT(MPI_COMM_IVP,ERR_FLAGS%LEGOPERATOR,IERR) ! 1 is just a place holder
   ENDIF
 ENDIF
 
@@ -636,7 +636,7 @@ IF ((A%INTH.LT.2).AND.(A%INTH+SIZE(A%E,2).GE.2)) THEN
   IF(ABS(A%E(NRCHOPS(2),MM,1)).GT.1.E-15) THEN
     WRITE(*,*) 'DEL2: OPERATION NOT EXACT'
     WRITE(*,*)  A%E(NRCHOPS(2),2,1)
-    CALL MPI_ABORT(MPI_COMM_IVP,1,IERR)
+    CALL MPI_ABORT(MPI_COMM_IVP,ERR_FLAGS%LEGOPERATOR,IERR)
   ENDIF
 ENDIF
 
@@ -674,22 +674,40 @@ END SUBROUTINE DEL2
 
 SUBROUTINE IDEL2(B,A,LN)
 !=======================================================================
-! [USAGE]: 
+! [USAGE]:
 ! INVERSE LAPLACIAN (DEL-SQUARE^(-1)) OPERATOR.
-! LOG-TERM IS ASSUMED AS BOUNDARY CONDITION (DEFAULT SETTING IS LN=0).
+! LOG-TERM IS ASSUMED AS BOUNDARY CONDITION (DEFAULT LN = 0).
 ! [PARAMETERS]:
-! B >> INPUT IN FFF SPACE
-! A >> ON EXIT, (DEL^2)^(-1)(B)
-! LN >> (OPTOINAL) ASSUMED AS BOUNDARY CONDITION. (DEFAULT IS 0)
+! B  >> INPUT IN FFF SPACE
+! A  >> ON EXIT, (DEL^2)^(-1)(B)
+! LN >> (OPTIONAL) BOUNDARY CONDITION (DEFAULT: 0)
 ! [DEPENDENCIES]:
-! 1. BAND_LOGLEG_RAT_DEL2H(~) @ MOD_LIN_LEGENDRE
-! 2. LUB(~) @ MOD_BANDMAT
-! 3. SOLVEB(~) @ MOD_BANDMAT
-! 4. (DE)ALLOCATE(SCALAR) @ MOD_SCALAR3
-! 5. CHOPDO(~) @ MOD_SCALAR3
-! [UPDATES]:
-! RE-CODED BY SANGJOON LEE @ NOV 11 2020
+! 1. BAND_LOGLEG_RAT_DEL2H(~)     @ MOD_LIN_LEGENDRE
+! 2. LUB(~)                       @ MOD_BANDMAT
+! 3. SOLVEB(~)                    @ MOD_BANDMAT
+! 4. (DE)ALLOCATE(SCALAR)         @ MOD_SCALAR3
+! 5. CHOPDO(~)                    @ MOD_SCALAR3
+! [NOTES]:
+! - FOR (M=0, K=0), THE FIRST RATIONAL LEGENDRE FUNCTION IS CONSTANT:
+!   P^0_L0 = 1
+!   SO DEL2(P^0_L0) = 0 HAS NO CONTRIBUITON TO ANY MODES.
+! - THE LOG TERM AFFECTS THE FIRST THREE RADIAL MODES IN THE FORWARD
+!   DEL2 OPERATOR. THUS, THE IDEL2 OPERATOR FOR (M=0, K=0) REPLACES
+!   THE FIRST RADIAL MODE WITH THE LOG TERM.
+! - FOR (M=0, K=0), THE SYSTEM SOLVED IS:
+!     DEL2_BAND_M0K0*[LN, A^0_1, A^0_2, ..., A^0_N]]
+!     = [LN, B^0_0, B^0_1, ..., B^0_N-1]
+!   WHERE:
+!     * LN IS THE SPECIFIED BOUNDARY VALUE (DEFAULT: LN = 0)
+!     * THE FIRST ROW ENFORCES LN: 1 * LN = 1
+!     * THE FIRST COLUMN ACCOUNTS FOR LOG TERM CONTRIBUTIONS
+! - THIS APPROACH REMOVES THE INFLUENCE OF THE FIRST RADIAL MODE
+! - DIRECHLET BOUNDARY CONDITION IS ASSUMED FOR THE LOG TERM, WHICH
+!   DICTATES THE FAR-FIELD BEHAVIOR OF A.
+! - FOR EFFICIENCY, THE DEL2_BAND MATRIX FOR ALL M = 0 MODES IS PADDED
+!   TO MATCH THE SIZE OF THE (M = 0, K = 0) SYSTEM.
 !=======================================================================
+
 IMPLICIT NONE
 TYPE(SCALAR):: A, B
 REAL(P8),DIMENSION(:,:,:),ALLOCATABLE :: DEL2OP
@@ -858,8 +876,25 @@ SUBROUTINE IDEL2LN(B,A)
 ! 3. SOLVEB(~) @ MOD_BANDMAT
 ! 4. (DE)ALLOCATE(SCALAR) @ MOD_SCALAR3
 ! 5. CHOPDO(~) @ MOD_SCALAR3
-! [UPDATES]:
-! RE-CODED BY SANGJOON LEE @ NOV 11 2020
+! [NOTES]:
+! - FOR (M=0, K=0), THE FIRST RATIONAL LEGENDRE FUNCTION IS CONSTANT:
+!   P^0_L0 = 1
+!   SO DEL2(P^0_L0) = 0 HAS NO CONTRIBUITON TO ANY MODES.
+! - THE LOG TERM AFFECTS THE FIRST THREE RADIAL MODES IN THE FORWARD
+!   DEL2 OPERATOR. THUS, THE IDEL2 OPERATOR FOR (M=0, K=0) REPLACES
+!   THE FIRST RADIAL MODE WITH THE LOG TERM.
+! - FOR (M=0, K=0), THE SYSTEM SOLVED IS:
+!     DEL2_BAND_M0K0*[LN, A^0_1, A^0_2, ..., A^0_N]
+!     = [B^0_0, B^0_1, ..., B^0_N]
+!   WHERE:
+!     * THE LAST ROW HAS ONLY THREE NON-ZERO ENTRIES DUE TO TRUNCATION
+! - THIS APPROACH REMOVES THE INFLUENCE OF THE FIRST RADIAL MODE.
+! - IDEL2 IS ESSENTIALLY IDEL2LN WITH THE LAST ROW REPLACED BY THE 
+!   DIRECHLET BOUNDARY CONDITION. BECAUSE OF TRUNCATION, THE LAST ROW
+!   OF DEL2 IS LESS ACCURATE, AND REPLACING IT WITH THE BC REMOVES
+!   THE NULLSPACE AMBIGUITY WHILE STABILIZING THE INVERSION AGAINST 
+!   TRUNCATION ARTIFACTS.
+! - IT IS RECOMMENDED TO USE IDEL2 INSTEAD OF IDEL2LN WHENEVER POSSIBLE.
 !=======================================================================
 IMPLICIT NONE
 TYPE(SCALAR):: A, B
@@ -1572,6 +1607,7 @@ IF (RGRAD_R%SPACE.NE.FFF_SPACE) THEN
 ENDIF
 
 ! RAR = R*D/DR(A)
+! NOTE: A%LN -> RGRAD_R'S (0,0,0) AND (1,0,0) COMPONENTS
 CALL XXDX(A,RGRAD_R)
 
 ! RAP = R*(D/DPHI(A))/R = D/DPHI(A) = IU*MV*A
@@ -2421,7 +2457,6 @@ CALL ALLOCATE(OZ2)
 CALL XXDX(RUP,OZ2)                                                ! OZ2 = R*D/DR(RUP)
 CALL XXDX(UZ,ROP)                                                 ! ROP = R*D/DR(UZ)
 
-ROR%LN = 0.D0
 ! FFF SPACE:
 !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(MV,NN,KK,KV)
 DO MM=1,SIZE(RUR%E,2) !NTCHOP
@@ -2453,280 +2488,17 @@ CALL DEALLOCATE(OZ2)
 RETURN
 END SUBROUTINE VEL2VOR      
 !=======================================================================
-! subroutine VPROD_PFF(RUR,RUP,UZ,ROR,ROP,OZ)
-! !=======================================================================
-! ! [USAGE]: 
-! ! COMPUTE A VECTOR PRODUCT IN PFF space
-! ! (PR,PP,PZ) = (UR,UP,UZ) X (OR,OP,OZ)
-! ! [PARAMETERS]:
-! ! RUR >> ON ENTRY, R*U_R TERM FROM PC2VEL (FFF)
-! ! RUP >> ON ENTRY, R*U_P TERM FROM PC2VEL (FFF)
-! ! UZ >> ON ENTRY, U_Z TERM FROM PC2VEL (FFF)
-! ! ROR >> ON ENTRY, R*OMEGA_R TERM FROM VEL2VOR
-! !        ON EXIT, R*[THE FIRST COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)]
-! !                 IN PHYSICAL-FUNCTION-FUNCTION SPACE
-! ! ROP >> ON ENTRY, R*OMEGA_P TERM FROM VEL2VOR
-! !        ON EXIT, R*[THE SECOND COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)]
-! !                 IN PHYSICAL-FUNCTION-FUNCTION SPACE
-! ! OZ >> ON ENTRY, OMEGA_Z TERM FROM VEL2VOR
-! !        ON EXIT, THE THIRD COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)
-! !                 IN PHYSICAL-FUNCTION-FUNCTION SPACE
-! ! [DEPENDENCIES]:
-! ! 1. RTRAN(~) @ MOD_SCALAR3
-! ! [UPDATES]:
-! ! RE-CODED BY JIGNE WANG @ APR 18 2021
-! !=======================================================================
-!       TYPE(SCALAR):: RUR,RUP,UZ
-!       TYPE(SCALAR):: ROR,ROP,OZ
-!       TYPE(SCALAR):: W1,W2,W3
-!       INTEGER:: NI,NJ,NK
-!       COMPLEX(P8),DIMENSION(:),ALLOCATABLE:: W1E,W2E,W3E
-
-!       IF(RUP%SPACE.NE.FFF_SPACE .OR. UZ%SPACE.NE.FFF_SPACE) THEN
-!         IF (MPI_RANK.EQ.0) WRITE(*,*) 'VPROD_PFF: RUR,RUP,UZ NOT IN FFF_SPACE.'
-!         STOP
-!       ENDIF
-
-!       IF(ROP%SPACE.NE.FFF_SPACE .OR. OZ%SPACE.NE.FFF_SPACE) THEN
-!         IF (MPI_RANK.EQ.0) WRITE(*,*) 'VPROD_PFF: ROR,ROP,OZ NOT IN FFF_SPACE.'
-!         STOP
-!       ENDIF
-
-!       CALL ALLOCATE(W1)
-!       CALL ALLOCATE(W2)
-!       CALL ALLOCATE(W3)
-!       W1 = RUR
-!       W2 = RUP
-!       W3 = UZ
-
-!       CALL RTRAN(ROR,1)                                                     ! FFF -> PFF SPACE
-!       CALL RTRAN(ROP,1)                                                     ! FFF -> PFF SPACE
-!       CALL RTRAN(OZ,1)                                                      ! FFF -> PFF SPACE
-
-!       NI=SIZE(ROR%E,1)
-!       NJ=SIZE(ROR%E,2)
-!       NK=SIZE(ROR%E,3)
-
-!       ALLOCATE(W1E(NI), W2E(NI), W3E(NI))
-!       W1E = 0
-!       W2E = 0
-!       W3E = 0
-
-
-!       IF ((ROR%INTH.EQ.0).AND.(ROR%INX.EQ.0)) THEN
-!         CALL RTRAN(W1,1)                                                     ! FFF -> PFF SPACE
-!         CALL RTRAN(W2,1)                                                     ! FFF -> PFF SPACE
-!         CALL RTRAN(W3,1)                                                      ! FFF -> PFF SPACE
-
-!         IF ((W2%INTH.LT.2).AND.(W2%INTH+SIZE(W2%E,2).GE.2)) THEN
-!           IF ((W2%INX.LT.2).AND.(W2%INX+SIZE(W2%E,3).GE.2)) THEN
-!             IF(ABS(W2%E(2,2,2)).GT.1.D-15 .OR.  ABS(W3%E(2,2,2)).GT.1.D-15) THEN
-!                 WRITE(*,*) 'VPROD_PFF: First 3 entries NOT axisymmetric and axial-invariant.'
-!                 CALL MPI_ABORT(MPI_COMM_IVP,1,IERR)
-!             ENDIF
-!           ENDIF
-!         ENDIF
-
-!         W1E = W1%E(:NI,1,1)
-!         W2E = W2%E(:NI,1,1)
-!         W3E = W3%E(:NI,1,1)
-
-!       ENDIF
-
-!       CALL MPI_ALLREDUCE(MPI_IN_PLACE, W1E, NI, MPI_DOUBLE_COMPLEX, MPI_SUM, MPI_COMM_IVP, IERR)
-!       CALL MPI_ALLREDUCE(MPI_IN_PLACE, W2E, NI, MPI_DOUBLE_COMPLEX, MPI_SUM, MPI_COMM_IVP, IERR)
-!       CALL MPI_ALLREDUCE(MPI_IN_PLACE, W3E, NI, MPI_DOUBLE_COMPLEX, MPI_SUM, MPI_COMM_IVP, IERR)
-
-!       CALL VPRODSUB_PFF(W1E,W2E,W3E,ROR%E,ROP%E,OZ%E,NI,NJ,NK)
-
-!       CALL DEALLOCATE(W1)
-!       CALL DEALLOCATE(W2)
-!       CALL DEALLOCATE(W3)
-!       DEALLOCATE(W1E,W2E,W3E)
-
-!       RETURN
-!       END subroutine VPROD_PFF
-! !=======================================================================
-! SUBROUTINE VPRODSUB_PFF(RUR,RUP,UZ,ROR,ROP,OZ,NI,NJ,NK)
-! !=======================================================================
-! ! [USAGE]: 
-! ! COMPUTE A VECTOR PRODUCT (PR,PP,PZ) = (UR,UP,UZ) X (OR,OP,OZ)
-! ! THE RESULTS ARE THEN STORED INTO ROR, ROP AND OZ.
-! ! [PARAMETERS]:
-! ! RUR >> ON ENTRY, R*U_R IN PFF SPACE
-! ! RUP >> ON ENTRY, R*U_P IN PFF SPACE
-! ! UZ >> ON ENTRY, U_Z IN PFF SPACE
-! ! ROR >> ON ENTRY, R*OMEGA_R IN PFF SPACE
-! !        ON EXIT, R*[THE FIRST COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)]
-! !                 IN PHYSICAL-FUNCTION-FUNCTION SPACE
-! ! ROP >> ON ENTRY, R*OMEGA_P IN PFF SPACE
-! !        ON EXIT, R*[THE SECOND COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)]
-! !                 IN PHYSICAL-FUNCTION-FUNCTION SPACE
-! ! OZ >> ON ENTRY, OMEGA_Z IN PFF SPACE
-! !        ON EXIT, THE THIRD COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)
-! !                 IN PHYSICAL-FUNCTION-FUNCTION SPACE
-! ! NI >> 1ST DIMENSION SIZE (IN THE X(OR R) DIRECTION)
-! ! NJ >> 2ND DIMENSION SIZE (IN THE AZIMUTHAL DIRECTION)
-! ! NK >> 3RD DIMENSION SIZE (IN THE AXIAL DIRECTION)
-! ! [UPDATES]:
-! ! RE-CODED BY SANGJOON LEE @ NOV 11 2020
-! !=======================================================================
-!       IMPLICIT NONE
-!       INTEGER:: NI,NJ,NK
-!       COMPLEX(P8),DIMENSION(NI):: RUR,RUP,UZ
-!       COMPLEX(P8),DIMENSION(NI,NJ,NK):: ROR,ROP,OZ
-
-!       REAL(P8):: A1,A2,A3,B1,B2,B3,C1,C2,C3,D1,D2,D3
-!       INTEGER:: KK,MM,NN
-
-!       !> CROSS PRODUCT
-! !$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(A1,A2,A3,C1,C2,C3,B1,B2,B3,D1,D2,D3) COLLAPSE(2)
-!       DO KK=1,NK
-!           DO MM=1,NJ
-!               DO NN=1,NI
-!                   A1=REAL(RUR(NN))
-!                   A2=REAL(RUP(NN))
-!                   A3=REAL(UZ(NN))
-!                   C1=AIMAG(RUR(NN))
-!                   C2=AIMAG(RUP(NN))
-!                   C3=AIMAG(UZ(NN))
-!                   B1=REAL(ROR(NN,MM,KK))
-!                   B2=REAL(ROP(NN,MM,KK))
-!                   B3=REAL(OZ(NN,MM,KK))
-!                   D1=AIMAG(ROR(NN,MM,KK))
-!                   D2=AIMAG(ROP(NN,MM,KK))
-!                   D3=AIMAG(OZ(NN,MM,KK))
-!                   ROR(NN,MM,KK)=CMPLX(A2*B3-A3*B2-C2*D3+C3*D2, A2*D3+C2*B3-A3*D2-C3*B2,P8)
-!                   ROP(NN,MM,KK)=CMPLX(A3*B1-A1*B3-C3*D1+C1*D3, A3*D1+C3*B1-A1*D3-C1*B3,P8)
-!                    OZ(NN,MM,KK)=CMPLX(A1*B2-A2*B1-C1*D2+C2*D1, A1*D2+C1*B2-A2*D1-C2*B1,P8)&
-!                               /TFM%R(NN)**2.
-!               ENDDO
-!           ENDDO
-!       ENDDO
-! !$OMP END PARALLEL DO
-
-!       RETURN
-!       END SUBROUTINE VPRODSUB_PFF
-! !=======================================================================
-! SUBROUTINE VPROD_PURE(RUR,RUP,UZ,ROR,ROP,OZ)
-! !=======================================================================
-! ! [USAGE]: 
-! ! WRAPPER OF VPRODSUB(~) COMPUTING A VECTOR PRODUCT (PPP) 
-! ! (PR,PP,PZ) = (UR,UP,UZ) X (OR,OP,OZ)
-! ! [PARAMETERS]:
-! ! RUR >> ON ENTRY, R*U_R TERM FROM PC2VEL
-! ! RUP >> ON ENTRY, R*U_P TERM FROM PC2VEL
-! ! UZ >> ON ENTRY, U_Z TERM FROM PC2VEL
-! ! ROR >> ON ENTRY, R*OMEGA_R TERM FROM PC2VOR
-! !        ON EXIT, R*[THE FIRST COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)]
-! !                 IN PHYSICAL-PHYSICAL-PHYSICAL SPACE
-! ! ROP >> ON ENTRY, R*OMEGA_P TERM FROM PC2VOR
-! !        ON EXIT, R*[THE SECOND COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)]
-! !                 IN PHYSICAL-PHYSICAL-PHYSICAL SPACE
-! ! OZ >> ON ENTRY, OMEGA_Z TERM FROM PC2OZ
-! !        ON EXIT, THE THIRD COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)
-! !                 IN PHYSICAL-PHYSICAL-PHYSICAL SPACE
-! ! [DEPENDENCIES]:
-! ! 1. TOFP(~) @ MOD_SCALAR3
-! ! 2. VPRODSUB(~) @ MOD_LEGOPS
-! ! [UPDATES]:
-! ! RE-CODED BY SANGJOON LEE @ NOV 11 2020
-! !=======================================================================
-! TYPE(SCALAR):: RUR,RUP,UZ
-! TYPE(SCALAR):: ROR,ROP,OZ
-! INTEGER:: NI,NJ,NK
-
-! ! !DEBUG:
-! ! COMPLEX(P8),DIMENSION(:,:,:),ALLOCATABLE:: GLB_ARRAY
-! ! !ALLOCATE(GLB_ARRAY(NDIMR,NDIMTH,NDIMX))
-! ! ALLOCATE(GLB_ARRAY(NRCHOPDIM,NTCHOPDIM,NXCHOPDIM))
-
-! CALL TOFP(RUR)                                                     ! FFF -> PPP SPACE
-! ! CALL MASSEMBLE(RUR%E,GLB_ARRAY,1)
-! ! if (MPI_RANK.EQ.0) THEN
-! !   CALL MCAT(GLB_ARRAY(:,1,:))
-! !   WRITE(*,*) SHAPE(GLB_ARRAY)
-! !   !CALL MCAT(CHI2%E(:,1,:))
-! ! ENDIF      
-! ! CALL MPI_BARRIER(MPI_COMM_IVP,IERR)      
-! CALL TOFP(RUP)                                                     ! FFF -> PPP SPACE
-! CALL TOFP(UZ)                                                      ! FFF -> PPP SPACE
-! CALL TOFP(ROR)                                                     ! FFF -> PPP SPACE
-! CALL TOFP(ROP)                                                     ! FFF -> PPP SPACE
-! CALL TOFP(OZ)                                                      ! FFF -> PPP SPACE
-
-! NI=SIZE(RUR%E,1)
-! NJ=SIZE(RUR%E,2)
-! NK=SIZE(RUR%E,3)
-
-! CALL VPRODSUB(RUR%E,RUP%E,UZ%E,ROR%E,ROP%E,OZ%E,NI,NJ,NK,RUR%INR)
-
-! RETURN
-! END SUBROUTINE VPROD_PURE
-! !=======================================================================
-! SUBROUTINE VPRODSUB_PURE(RUR,RUP,UZ,ROR,ROP,OZ,NI,NJ,NK,IR)
-! !=======================================================================
-! ! [USAGE]: 
-! ! COMPUTE A VECTOR PRODUCT (PR,PP,PZ) = (UR,UP,UZ) X (OR,OP,OZ)
-! ! THE RESULTS ARE THEN STORED INTO ROR, ROP AND OZ.
-! ! [PARAMETERS]:
-! ! RUR >> ON ENTRY, R*U_R IN PPP SPACE
-! ! RUP >> ON ENTRY, R*U_P IN PPP SPACE
-! ! UZ >> ON ENTRY, U_Z IN PPP SPACE
-! ! ROR >> ON ENTRY, R*OMEGA_R IN PPP SPACE
-! !        ON EXIT, R*[THE FIRST COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)]
-! !                 IN PHYSICAL-PHYSICAL-PHYSICAL SPACE
-! ! ROP >> ON ENTRY, R*OMEGA_P IN PPP SPACE
-! !        ON EXIT, R*[THE SECOND COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)]
-! !                 IN PHYSICAL-PHYSICAL-PHYSICAL SPACE
-! ! OZ >> ON ENTRY, OMEGA_Z IN PPP SPACE
-! !        ON EXIT, THE THIRD COMPONENT OF (UR,UP,UZ) X (OR,OP,OZ)
-! !                 IN PHYSICAL-PHYSICAL-PHYSICAL SPACE
-! ! NI >> 1ST DIMENSION SIZE (IN THE X(OR R) DIRECTION)
-! ! NJ >> 2ND DIMENSION SIZE (IN THE AZIMUTHAL DIRECTION)
-! ! NK >> 3RD DIMENSION SIZE (IN THE AXIAL DIRECTION)
-! ! [UPDATES]:
-! ! RE-CODED BY SANGJOON LEE @ NOV 11 2020
-! !=======================================================================
-! IMPLICIT NONE
-! INTEGER:: NI,NJ,NK
-! COMPLEX(P8),DIMENSION(NI,NJ,NK):: RUR,RUP,UZ,ROR,ROP,OZ
-
-! REAL(P8):: A1,A2,A3,B1,B2,B3,C1,C2,C3,D1,D2,D3
-! INTEGER:: KK,MM,NN,IR
-      
-! !> CROSS PRODUCT
-! !$OMP PARALLEL DO DEFAULT(SHARED) &
-! !$OMP& PRIVATE(A1,A2,A3,C1,C2,C3,B1,B2,B3,D1,D2,D3) COLLAPSE(2)
-! DO KK=1,SIZE(RUR,3) !NX
-!     DO MM=1,NTH
-!       DO NN=1,MIN(SIZE(RUR,1),NR-IR) !NR
-!           A1=REAL(RUR(NN,MM,KK))
-!           A2=REAL(RUP(NN,MM,KK))
-!           A3=REAL(UZ(NN,MM,KK))
-!           C1=AIMAG(RUR(NN,MM,KK))
-!           C2=AIMAG(RUP(NN,MM,KK))
-!           C3=AIMAG(UZ(NN,MM,KK))
-!           B1=REAL(ROR(NN,MM,KK))
-!           B2=REAL(ROP(NN,MM,KK))
-!           B3=REAL(OZ(NN,MM,KK))
-!           D1=AIMAG(ROR(NN,MM,KK))
-!           D2=AIMAG(ROP(NN,MM,KK))
-!           D3=AIMAG(OZ(NN,MM,KK))
-!           ROR(NN,MM,KK)=CMPLX(A2*B3-A3*B2, C2*D3-C3*D2,P8)
-!           ROP(NN,MM,KK)=CMPLX(A3*B1-A1*B3, C3*D1-C1*D3,P8)
-!           OZ(NN,MM,KK)=CMPLX(A1*B2-A2*B1, C1*D2-C2*D1,P8)&
-!                       /TFM%R(NN+IR)**2.
-!       ENDDO
-!     ENDDO
-! ENDDO
-! !$OMP END PARALLEL DO
-
-! RETURN
-! END SUBROUTINE VPRODSUB_PURE
-! !=======================================================================
-
 SUBROUTINE MAX_ELEMENT(RUR, RUP, UZ)
+!=======================================================================
+! [USAGE]:
+! FIND THE MAXIMUM ELEMENTS IN UR, UP, UZ AND THEIR LOC
+! [PARAMETERS]:
+! RUR >> R*U_R IN PPP SPACE
+! RUP >> R*U_P IN PPP SPACE
+!  UZ >>   U_Z IN PPP SPACE
+! [NOTES]:
+! THE MAX ARE FOR UR, UP, UZ DESPITE INPUTS ARE RUR, RUP, UZ
+!========================================================================
 IMPLICIT NONE
 TYPE(SCALAR),INTENT(IN):: RUR, RUP, UZ
 REAL(P8):: URMAX, UPMAX, UZMAX, R, URMAX_LOC, UPMAX_LOC, UZMAX_LOC
