@@ -49,7 +49,7 @@ MODULE MOD_DIAGNOSTICS ! LEVEL 5 MODULE
    ! ! ENERGY SPECTRUM
    ! PUBLIC:: ENERGY_SPEC, 
    ! ! CALCULATE INTEGRATION OF PRODUCT*(1-X)^2
-   ! PUBLIC:: PRODUCT_MK
+   PUBLIC:: PRODUCT_MK
 CONTAINS
 !=======================================================================
 !============================ SUBROUTINES ==============================

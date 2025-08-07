@@ -51,16 +51,22 @@ $(shell mkdir -p $(OBJ_DIR) $(MOD_DIR) $(BIN_DIR) $(OUTPUT_DIR))
 # Add module directory to compiler flags
 FFLG += $(MODULE_FLAG) $(MOD_DIR)
 
-# Program scripts in the f90 folder
-EXE_F = addperturb_non \
-	addperturb_split \
-	evp_parametric \
-	evp_print \
-	init \
-	vort \
-	vort9 \
-	postproc_mpi \
-	bsnsq_ivp
+# Scan the f90 folder for all .f90 scripts
+F90_DIR = f90
+F90_SCRIPTS = $(basename $(notdir $(wildcard $(F90_DIR)/*.f90)))
+EXE_F = $(F90_SCRIPTS)
+
+# # Program scripts in the f90 folder
+# EXE_F = addperturb_non \
+# 	addperturb_split \
+# 	evp_parametric \
+# 	evp_print \
+# 	init \
+# 	vort \
+# 	vort9 \
+# 	postproc_mpi \
+# 	bsnsq_ivp \ 
+# 	test_prodct \
 
 # Phony targets
 .PHONY: all clean new swipe $(EXE_F)
