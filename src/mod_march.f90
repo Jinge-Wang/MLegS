@@ -1486,6 +1486,155 @@ CONTAINS
 !=======================================================================
 !============================= FUNCTIONS ===============================
 !=======================================================================
+!   FUNCTION PRODCTM(A,B)
+! !=======================================================================
+! ! [USAGE]: 
+! ! CALCULATE THE PRODUCT AND INTEGRATE OVER THE DOMAIN
+! ! FOR EACH AZIMUTHAL WAVENUMBER.
+! ! CALL IN R-PHYSICAL / PHI,Z-FOURIER SPACE (PFF SPACE)
+! ! WHAT'S INTEGRATED IS F=A*B*(1-MU)^2
+! ! [PARAMETERS]:
+! ! A >> SCALAR-TYPE VARIABLE IN A PFF SPACE
+! ! B >> SCALAR-TYPE VARIABLE IN A PFF SPACE
+! ! [UPDATES]:
+! ! RE-CODED BY SANGJOON LEE @ NOV 20 2020
+! !=======================================================================
+!   IMPLICIT NONE
+!   TYPE(SCALAR):: A,B
+
+!   COMPLEX(P8),DIMENSION(:,:),ALLOCATABLE:: PROD !(NR,NTCHOP)
+!   REAL(P8),DIMENSION(NTCHOP):: PRODCTM
+!   INTEGER:: MM,KK
+
+!   IF(A%SPACE.NE.PFF_SPACE .OR. B%SPACE.NE.PFF_SPACE) THEN
+!     IF (MPI_RANK.EQ.0) THEN
+!       WRITE(*,*) 'PRODCT:NOT IN PFF_SPACE'
+!       WRITE(*,*) 'A%SPACE,B%SPACE=',A%SPACE,B%SPACE
+!     ENDIF
+!     STOP
+!   ENDIF
+
+!   IF(A%LN.NE.0.0 .OR. B%LN.NE.0.0) THEN
+!     IF (MPI_RANK.EQ.0) WRITE(*,*) 'PRODCT:LOGTERM NOT ZERO'
+!   ENDIF
+
+!   ALLOCATE(PROD(NR,SIZE(A%E,2)))
+!   PROD=0
+
+!   DO KK = 1,SIZE(A%E,3) !NX
+!     !IF(KK.GT.NXCHOP .AND. KK.LT.NXCHOPH) CYCLE
+!     DO MM = 1,SIZE(A%E,2) !NTCHOP
+!       ! M = 0
+!       IF (MM+A%INTH.EQ.1) THEN
+!         PROD(:,1) = PROD(:,1)+A%E(:NR,1,KK)*CONJG(B%E(:NR,1,KK))
+!       ! M > 0
+!       ELSE
+!       PROD(:,MM) = PROD(:,MM)+2*(REAL(A%E(:NR,MM,KK)) &
+!                                 *REAL(B%E(:NR,MM,KK)) &
+!                                 +AIMAG(A%E(:NR,MM,KK))&
+!                                 *AIMAG(B%E(:NR,MM,KK)))
+!       ENDIF
+!     ENDDO
+!   ENDDO
+
+!   PRODCTM = 0.D0
+!   DO MM=1,SIZE(A%E,2) !NTCHOP
+!     ! NOTE:
+!     ! PRODCTM IS CALCULATED DIRECTLY USING GAUSS-LEGENDRE QUADRATURE
+!     ! THERE IS NO REASON BEHIND *TFM%PF(1,1,1)*TFM%NORM(1,1)
+!     ! PRODCTM(MM+A%INTH) = SUM((PROD(:,MM)*TFM%W)*TFM%PF(1,1,1))
+!     ! PRODCTM(MM+A%INTH) = 4*PI*ZLEN0*ELL2*PRODCTM(MM+A%INTH)*TFM%NORM(1,1)
+!     PRODCTM(MM+A%INTH) = SUM(PROD(:,MM)*TFM%W)
+!     PRODCTM(MM+A%INTH) = 2*PI*ZLEN0*ELL2*PRODCTM(MM+A%INTH)
+!   ENDDO
+!   CALL MPI_ALLREDUCE(MPI_IN_PLACE,PRODCTM,NTCHOP,MPI_DOUBLE_PRECISION, &
+!                   MPI_SUM, MPI_COMM_IVP, IERR)
+
+!   DEALLOCATE(PROD)
+!   RETURN
+!   END FUNCTION PRODCTM
+! !=======================================================================
+!   FUNCTION PRODCTK(A,B)
+! !=======================================================================
+! ! [USAGE]: 
+! ! CALCULATE THE PRODUCT AND INTEGRATE OVER THE DOMAIN
+! ! FOR EACH AXIAL WAVENUMBER.
+! ! CALL IN R-PHYSICAL / PHI,Z-FOURIER SPACE (PFF SPACE)
+! ! WHAT'S INTEGRATED IS F=A*B*(1-MU)^2
+! ! [PARAMETERS]:
+! ! A >> SCALAR-TYPE VARIABLE IN A PFF SPACE
+! ! B >> SCALAR-TYPE VARIABLE IN A PFF SPACE
+! ! [UPDATES]:
+! ! RE-CODED BY SANGJOON LEE @ NOV 20 2020
+! !=======================================================================
+!   IMPLICIT NONE
+!   TYPE(SCALAR):: A,B
+
+!   ! COMPLEX(P8),DIMENSION(:,:),ALLOCATABLE:: PROD !(NR,NXCHOP)
+!   REAL(P8),DIMENSION(:,:),ALLOCATABLE:: PROD !(NR,NXCHOP)
+!   REAL(P8),DIMENSION(NXCHOPDIM):: PRODCTK_TEMP
+!   REAL(P8),DIMENSION(NXCHOP):: PRODCTK
+!   INTEGER:: MM,KK,KH,CK,CM
+
+!   IF(A%SPACE.NE.PFF_SPACE .OR. B%SPACE.NE.PFF_SPACE) THEN
+!     IF (MPI_RANK.EQ.0) THEN
+!       WRITE(*,*) 'PRODCT:NOT IN PFF_SPACE'
+!       WRITE(*,*) 'A%SPACE,B%SPACE=',A%SPACE,B%SPACE
+!     ENDIF
+!     STOP
+!   ENDIF
+
+!   IF(A%LN.NE.0.0 .OR. B%LN.NE.0.0) THEN
+!     IF (MPI_RANK.EQ.0) WRITE(*,*) 'PRODCT:LOGTERM NOT ZERO'
+!   ENDIF
+
+!   ALLOCATE(PROD(NR,SIZE(A%E,3)))
+!   PROD=0
+
+!   DO KK = 1,SIZE(A%E,3) !NXCHOP
+!     IF(KK+A%INX.EQ.1) THEN
+!       CK=2
+!       KH=1
+!     ELSE
+!       CK=1
+!       !KH=NX-KK+2
+!     ENDIF
+
+!     DO MM = 1,SIZE(A%E,2) !NTCHOP
+!       CM=1
+!       IF(MM+A%INTH.EQ.1) CM=2
+!       ! PROD(:,KK)=PROD(:,KK)+1.0D0/CK/CM* & 
+!       !            2*REAL(A%E(:NR,MM,KK)*CONJG(B%E(:NR,MM,KK)) &
+!       !                   +B%E(:NR,MM,KH)*CONJG(A%E(:NR,MM,KH)))
+!       PROD(:,KK)=PROD(:,KK)+1.0D0/CK/CM* & 
+!                   2*REAL(A%E(:NR,MM,KK)*CONJG(B%E(:NR,MM,KK))) 
+!                         !+B%E(:NR,MM,KH)*CONJG(A%E(:NR,MM,KH)))
+!     ENDDO
+!   ENDDO
+
+!   PRODCTK_TEMP = 0.D0
+!   DO KK=1,SIZE(A%E,3) !NXCHOP
+!     ! NOTE:
+!     ! THERE IS NO POINT OF *TFM%PF(1,1,1)*TFM*NORM(1,1)
+!     ! PRODCT IS CALCULATED DIRECTLY USING GAUSS-LEGENDRE QUADRATURE
+!     ! PRODCTK_TEMP(KK+A%INX) = SUM((PROD(:,KK)*TFM%W)*TFM%PF(1,1,1))
+!     ! PRODCTK_TEMP(KK+A%INX) = 4*PI*ZLEN0*ELL2*PRODCTK_TEMP(KK+A%INX)*TFM%NORM(1,1)
+!     PRODCTK_TEMP(KK+A%INX) = SUM(PROD(:,KK)*TFM%W)
+!     PRODCTK_TEMP(KK+A%INX) = 2*PI*ZLEN0*ELL2*PRODCTK_TEMP(KK+A%INX)
+!   ENDDO
+!   CALL MPI_ALLREDUCE(MPI_IN_PLACE,PRODCTK_TEMP,NXCHOPDIM,MPI_DOUBLE_PRECISION, &
+!                   MPI_SUM, MPI_COMM_IVP, IERR)
+
+!   DO KK = 1,NXCHOP
+!     KH = NXCHOPDIM - KK + 2
+!     IF (KK.EQ.1) KH = 1
+!     PRODCTK(KK) = PRODCTK_TEMP(KK) + PRODCTK_TEMP(KH)
+!   ENDDO
+
+!   DEALLOCATE(PROD)
+!   RETURN
+!   END FUNCTION PRODCTK
+!=======================================================================
   FUNCTION PRODCTM(A,B)
 !=======================================================================
 ! [USAGE]: 
@@ -1496,61 +1645,16 @@ CONTAINS
 ! [PARAMETERS]:
 ! A >> SCALAR-TYPE VARIABLE IN A PFF SPACE
 ! B >> SCALAR-TYPE VARIABLE IN A PFF SPACE
-! [UPDATES]:
-! RE-CODED BY SANGJOON LEE @ NOV 20 2020
 !=======================================================================
   IMPLICIT NONE
-  TYPE(SCALAR):: A,B
-
-  COMPLEX(P8),DIMENSION(:,:),ALLOCATABLE:: PROD !(NR,NTCHOP)
-  REAL(P8),DIMENSION(NTCHOP):: PRODCTM
+  TYPE(SCALAR), INTENT(IN):: A,B
+  REAL(P8):: PRODCTM(NTCHOP),PRODCTMK(NTCHOP,NXCHOP)
   INTEGER:: MM,KK
 
-  IF(A%SPACE.NE.PFF_SPACE .OR. B%SPACE.NE.PFF_SPACE) THEN
-    IF (MPI_RANK.EQ.0) THEN
-      WRITE(*,*) 'PRODCT:NOT IN PFF_SPACE'
-      WRITE(*,*) 'A%SPACE,B%SPACE=',A%SPACE,B%SPACE
-    ENDIF
-    STOP
-  ENDIF
-
-  IF(A%LN.NE.0.0 .OR. B%LN.NE.0.0) THEN
-    IF (MPI_RANK.EQ.0) WRITE(*,*) 'PRODCT:LOGTERM NOT ZERO'
-  ENDIF
-
-  ALLOCATE(PROD(NR,SIZE(A%E,2)))
-  PROD=0
-
-  DO KK = 1,SIZE(A%E,3) !NX
-    !IF(KK.GT.NXCHOP .AND. KK.LT.NXCHOPH) CYCLE
-    DO MM = 1,SIZE(A%E,2) !NTCHOP
-      ! M = 0
-      IF (MM+A%INTH.EQ.1) THEN
-        PROD(:,1) = PROD(:,1)+A%E(:NR,1,KK)*CONJG(B%E(:NR,1,KK))
-      ! M > 0
-      ELSE
-      PROD(:,MM) = PROD(:,MM)+2*(REAL(A%E(:NR,MM,KK)) &
-                                *REAL(B%E(:NR,MM,KK)) &
-                                +AIMAG(A%E(:NR,MM,KK))&
-                                *AIMAG(B%E(:NR,MM,KK)))
-      ENDIF
-    ENDDO
-  ENDDO
-
+  PRODCTMK = PRODCT_MK_HALFK(A,B)
   PRODCTM = 0.D0
-  DO MM=1,SIZE(A%E,2) !NTCHOP
-    ! NOTE:
-    ! PRODCTM IS CALCULATED DIRECTLY USING GAUSS-LEGENDRE QUADRATURE
-    ! THERE IS NO REASON BEHIND *TFM%PF(1,1,1)*TFM%NORM(1,1)
-    ! PRODCTM(MM+A%INTH) = SUM((PROD(:,MM)*TFM%W)*TFM%PF(1,1,1))
-    ! PRODCTM(MM+A%INTH) = 4*PI*ZLEN0*ELL2*PRODCTM(MM+A%INTH)*TFM%NORM(1,1)
-    PRODCTM(MM+A%INTH) = SUM(PROD(:,MM)*TFM%W)
-    PRODCTM(MM+A%INTH) = 2*PI*ZLEN0*ELL2*PRODCTM(MM+A%INTH)
-  ENDDO
-  CALL MPI_ALLREDUCE(MPI_IN_PLACE,PRODCTM,NTCHOP,MPI_DOUBLE_PRECISION, &
-                  MPI_SUM, MPI_COMM_IVP, IERR)
+  PRODCTM = SUM(PRODCTMK, DIM=2)
 
-  DEALLOCATE(PROD)
   RETURN
   END FUNCTION PRODCTM
 !=======================================================================
@@ -1564,77 +1668,17 @@ CONTAINS
 ! [PARAMETERS]:
 ! A >> SCALAR-TYPE VARIABLE IN A PFF SPACE
 ! B >> SCALAR-TYPE VARIABLE IN A PFF SPACE
-! [UPDATES]:
-! RE-CODED BY SANGJOON LEE @ NOV 20 2020
 !=======================================================================
   IMPLICIT NONE
-  TYPE(SCALAR):: A,B
+  TYPE(SCALAR), INTENT(IN):: A,B
+  REAL(P8):: PRODCTK(NXCHOP),PRODCTMK(NTCHOP,NXCHOP)
 
-  ! COMPLEX(P8),DIMENSION(:,:),ALLOCATABLE:: PROD !(NR,NXCHOP)
-  REAL(P8),DIMENSION(:,:),ALLOCATABLE:: PROD !(NR,NXCHOP)
-  REAL(P8),DIMENSION(NXCHOPDIM):: PRODCTK_TEMP
-  REAL(P8),DIMENSION(NXCHOP):: PRODCTK
-  INTEGER:: MM,KK,KH,CK,CM
+  PRODCTMK = PRODCT_MK_HALFK(A,B)
+  PRODCTK = 0.D0
+  PRODCTK = SUM(PRODCTMK, DIM=1)
 
-  IF(A%SPACE.NE.PFF_SPACE .OR. B%SPACE.NE.PFF_SPACE) THEN
-    IF (MPI_RANK.EQ.0) THEN
-      WRITE(*,*) 'PRODCT:NOT IN PFF_SPACE'
-      WRITE(*,*) 'A%SPACE,B%SPACE=',A%SPACE,B%SPACE
-    ENDIF
-    STOP
-  ENDIF
-
-  IF(A%LN.NE.0.0 .OR. B%LN.NE.0.0) THEN
-    IF (MPI_RANK.EQ.0) WRITE(*,*) 'PRODCT:LOGTERM NOT ZERO'
-  ENDIF
-
-  ALLOCATE(PROD(NR,SIZE(A%E,3)))
-  PROD=0
-
-  DO KK = 1,SIZE(A%E,3) !NXCHOP
-    IF(KK+A%INX.EQ.1) THEN
-      CK=2
-      KH=1
-    ELSE
-      CK=1
-      !KH=NX-KK+2
-    ENDIF
-
-    DO MM = 1,SIZE(A%E,2) !NTCHOP
-      CM=1
-      IF(MM+A%INTH.EQ.1) CM=2
-      ! PROD(:,KK)=PROD(:,KK)+1.0D0/CK/CM* & 
-      !            2*REAL(A%E(:NR,MM,KK)*CONJG(B%E(:NR,MM,KK)) &
-      !                   +B%E(:NR,MM,KH)*CONJG(A%E(:NR,MM,KH)))
-      PROD(:,KK)=PROD(:,KK)+1.0D0/CK/CM* & 
-                  2*REAL(A%E(:NR,MM,KK)*CONJG(B%E(:NR,MM,KK))) 
-                        !+B%E(:NR,MM,KH)*CONJG(A%E(:NR,MM,KH)))
-    ENDDO
-  ENDDO
-
-  PRODCTK_TEMP = 0.D0
-  DO KK=1,SIZE(A%E,3) !NXCHOP
-    ! NOTE:
-    ! THERE IS NO POINT OF *TFM%PF(1,1,1)*TFM*NORM(1,1)
-    ! PRODCT IS CALCULATED DIRECTLY USING GAUSS-LEGENDRE QUADRATURE
-    ! PRODCTK_TEMP(KK+A%INX) = SUM((PROD(:,KK)*TFM%W)*TFM%PF(1,1,1))
-    ! PRODCTK_TEMP(KK+A%INX) = 4*PI*ZLEN0*ELL2*PRODCTK_TEMP(KK+A%INX)*TFM%NORM(1,1)
-    PRODCTK_TEMP(KK+A%INX) = SUM(PROD(:,KK)*TFM%W)
-    PRODCTK_TEMP(KK+A%INX) = 2*PI*ZLEN0*ELL2*PRODCTK_TEMP(KK+A%INX)
-  ENDDO
-  CALL MPI_ALLREDUCE(MPI_IN_PLACE,PRODCTK_TEMP,NXCHOPDIM,MPI_DOUBLE_PRECISION, &
-                  MPI_SUM, MPI_COMM_IVP, IERR)
-
-  DO KK = 1,NXCHOP
-    KH = NXCHOPDIM - KK + 2
-    IF (KK.EQ.1) KH = 1
-    PRODCTK(KK) = PRODCTK_TEMP(KK) + PRODCTK_TEMP(KH)
-  ENDDO
-
-  DEALLOCATE(PROD)
   RETURN
   END FUNCTION PRODCTK
-!=======================================================================
 !=======================================================================
   FUNCTION SMOOTH(A)
 !=======================================================================

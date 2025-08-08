@@ -63,7 +63,7 @@ program test_prodct
 implicit none
 type(scalar):: a, b
 integer:: mm,nn,kk
-real(p8):: prod, inte
+real(p8):: prod, inte, rand
 real(p8), allocatable:: prod_mk(:,:), prod_mk_mod(:,:), prod_m(:), prod_k(:)
 
 ! INITITALIZE MPI ENVIRONMENT
@@ -82,14 +82,34 @@ CALL PRINT_MPI_STRATEGY(FILES%SAVEDIR)
 IF (MPI_RANK.EQ.0) CALL SAVEDIN()
 
 ! MAIN
-call allocate(a, PFF_SPACE)
+! TEST IF RESULT IS MATHEMATICALLY CORRECT
+! call allocate(a, PFF_SPACE)
+! call allocate(b, PFF_SPACE)
+! a%E = 0.d0; b%E = 0.d0
+! if ((b%INTH .eq. 0).and.(b%inx .eq. 0)) then
+!     a%e(:,1,1) = 1.d0
+!     b%e(:,1,1) = 1.d0
+! endif
+
+! TEST SUBROUTINE CONSISTENCY
+call allocate(a, FFF_SPACE)
 call allocate(b, PFF_SPACE)
 
-a%E = 0.d0; b%E = 0.d0
-if ((a%INTH .eq. 0).and.(a%inx .eq. 0)) then
-    a%e(:,1,1) = 1.d0
-    b%e(:,1,1) = 1.d0
-endif
+a%E = 0.d0
+! create random noise in a
+do nn = 1, size(a%e,1)
+   do mm = 1, size(a%e,2)
+      do kk = 1, size(a%e,3)
+        if ((nn .le. 5).and.(mm+a%INTH .le. 5).and.(kk+a%INX .le. 5)) then
+        call RANDOM_NUMBER(rand)
+         a%e(nn,mm,kk) = 1.d0 + 0.01 * (rand - 0.5) + IU * 0.2 * (rand - 0.8)
+        end if
+      enddo
+   enddo
+enddo
+call rtran(a,1)
+
+b = a
 
 prod = prodct(a,b) ! multiply tfm%pf(1,1,1)
 if (MPI_RANK.EQ.0) then
@@ -108,19 +128,27 @@ if (MPI_RANK.EQ.0) then
 endif
 
 allocate(prod_mk(ntchop, nxchop))
-prod_mk = product_mk(a,b) ! < correct
+prod_mk = PRODCT_MK_HALFK(a,b) ! < correct
 if (MPI_RANK.EQ.0) then
     WRITE(*,*) 'PF(1,1,1) = ', TFM%PF(1,1,1)
     WRITE(*,*) 'NORM(1,1) = ', TFM%NORM(1,1)
-    WRITE(*,*) 'Product (mk) computed successfully.'
-    WRITE(*,*) 'Product (mk) = ', prod_mk(1,:5)
+    WRITE(*,*) 'Product (HALFK) computed successfully.'
+    WRITE(*,*) 'Product (HALFK) = '
+    call mcat(prod_mk(:5,:5))
+    WRITE(*,*) 'Over k:', sum(prod_mk(:5,:),dim=2)
+    WRITE(*,*) 'Over m:', sum(prod_mk(:,:5),dim=1)
+    WRITE(*,*) 'SUM:', sum(prod_mk)
 endif
 
 allocate(prod_mk_mod(ntchop, nxchopdim))
-prod_mk_mod = prodct_mk(a,b) ! < correct
+prod_mk_mod = PRODCT_MK_ALLK(a,b) ! < correct
 if (MPI_RANK.EQ.0) then
-    WRITE(*,*) 'Product (mk_mod) computed successfully.'
-    WRITE(*,*) 'Product (mk_mod) = ', prod_mk_mod(1,:5)
+    WRITE(*,*) 'Product (ALLK) computed successfully.'
+    WRITE(*,*) 'Product (ALLK) = '
+    call mcat(prod_mk_mod(:5,:5))
+    WRITE(*,*) 'Over k:', sum(prod_mk_mod(:5,:),dim=2)
+    WRITE(*,*) 'Over m:', sum(prod_mk_mod(:,:5),dim=1)
+    WRITE(*,*) 'SUM:', sum(prod_mk_mod)
 endif
 
 call rtran(a,-1) ! a to FFF_SPACE

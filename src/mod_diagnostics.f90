@@ -44,12 +44,6 @@ MODULE MOD_DIAGNOSTICS ! LEVEL 5 MODULE
    PUBLIC:: RENORMALIZE, REWIPE
    PUBLIC:: HYPERV3
    ! PUBLIC:: RICH_RE
-
-   ! DEPRECATED:
-   ! ! ENERGY SPECTRUM
-   ! PUBLIC:: ENERGY_SPEC, 
-   ! ! CALCULATE INTEGRATION OF PRODUCT*(1-X)^2
-   PUBLIC:: PRODUCT_MK
 CONTAINS
 !=======================================================================
 !============================ SUBROUTINES ==============================
@@ -558,69 +552,69 @@ END SUBROUTINE COLLOC_INFO
 !=======================================================================
 !============================ FUNCTIONS ================================
 !=======================================================================
-FUNCTION PRODUCT_MK(A,B)
-! ======================================================================
-! [USAGE]:
-! COMPUTE INT (1-X^2)*A*B RDR D(PHI) DZ OVER THE ENTIRE DOMAIN AND FOLD
-! THE CONTRIBUTIONS INTO NON-NEGATIVE M AND K MODES.
-! [PARAMETERS]:
-! A, B >> SCALAR TYPE VARIABLES IN PFF_SPACE.
-! [NOTES]:
-! THIS FUNCTION COMPUTES THE DOT PRODUCT FOR ALL MODES BUT STORE THEM
-! INTO NON-NEGATIVE M AND K MODES ONLY. M = 0, K = 0 MODE REQUIRES
-! DIVISION BY TWO TO AVOID DOUBLE COUNTING.
-! CODED BY J. BARRANCO, 01/22/1999
-! ======================================================================
+! FUNCTION PRODCT_MK_HALFK(A,B)
+! ! ======================================================================
+! ! [USAGE]:
+! ! COMPUTE INT (1-X^2)*A*B RDR D(PHI) DZ OVER THE ENTIRE DOMAIN AND FOLD
+! ! THE CONTRIBUTIONS INTO NON-NEGATIVE M AND K MODES.
+! ! [PARAMETERS]:
+! ! A, B >> SCALAR TYPE VARIABLES IN PFF_SPACE.
+! ! [NOTES]:
+! ! THIS FUNCTION COMPUTES THE DOT PRODUCT FOR ALL MODES BUT STORE THEM
+! ! INTO NON-NEGATIVE M AND K MODES ONLY. M = 0, K = 0 MODE REQUIRES
+! ! DIVISION BY TWO TO AVOID DOUBLE COUNTING.
+! ! CODED BY J. BARRANCO, 01/22/1999
+! ! ======================================================================
 
-   IMPLICIT NONE
-   TYPE(SCALAR):: A,B
-   REAL(P8):: WK1(NR)
-   REAL(P8):: PRODUCT_MK(NTCHOP,NXCHOP)
-   INTEGER:: MM,KK,KC,COUNT
+!    IMPLICIT NONE
+!    TYPE(SCALAR):: A,B
+!    REAL(P8):: WK1(NR)
+!    REAL(P8):: PRODCT_MK_HALFK(NTCHOP,NXCHOP)
+!    INTEGER:: MM,KK,KC,COUNT
 
-   IF(A%SPACE.NE.PFF_SPACE .OR. B%SPACE.NE.PFF_SPACE) THEN
-   IF (MPI_RANK.EQ.0) THEN
-      PRINT *,'ERROR: PRODUCT_MK() -- NOT IN PFF_SPACE.'
-      PRINT *,'A%SPACE, B%SPACE = ',A%SPACE,B%SPACE
-   ENDIF
-   STOP
-   ENDIF
+!    IF(A%SPACE.NE.PFF_SPACE .OR. B%SPACE.NE.PFF_SPACE) THEN
+!    IF (MPI_RANK.EQ.0) THEN
+!       PRINT *,'ERROR: PRODCT_MK_HALFK() -- NOT IN PFF_SPACE.'
+!       PRINT *,'A%SPACE, B%SPACE = ',A%SPACE,B%SPACE
+!    ENDIF
+!    STOP
+!    ENDIF
 
-   IF ((A%INTH.EQ.0).AND.(A%INX.EQ.0)) THEN
-      IF(ABS(A%LN)>1.0E-8 .OR. ABS(B%LN)>1.0E-8) THEN
-         PRINT *,'WARNING: PRODUCT_MK() -- LOGTERM NOT ZERO.'
-         PRINT *,'A%LN, B%LN = ',A%LN,B%LN
-      ENDIF
-   ENDIF
+!    IF ((A%INTH.EQ.0).AND.(A%INX.EQ.0)) THEN
+!       IF(ABS(A%LN)>1.0E-8 .OR. ABS(B%LN)>1.0E-8) THEN
+!          PRINT *,'WARNING: PRODCT_MK_HALFK() -- LOGTERM NOT ZERO.'
+!          PRINT *,'A%LN, B%LN = ',A%LN,B%LN
+!       ENDIF
+!    ENDIF
 
-   PRODUCT_MK = 0.D0
-   DO MM=1,SIZE(A%E,2) !NTCHOP
-      DO KK=1,SIZE(A%E,3) !NXCHOP
-         KC = KK+A%INX ! GLB_COORDINATE
-         IF (KC==1) THEN
-            WK1 = REAL(A%E(:NR,MM,KK)*CONJG(B%E(:NR,MM,KK)) &
-                    & +B%E(:NR,MM,KK)*CONJG(A%E(:NR,MM,KK)))
-         ELSEIF (KC.LE.NXCHOP) THEN
-            ! WK1 = REAL(A%E(:NR,MM,KK)*CONJG(B%E(:NR,MM,KK)) &
-            !         & +B%E(:NR,MM,KC)*CONJG(A%E(:NR,MM,KC)))
-            WK1 = REAL(A%E(:NR,MM,KK)*CONJG(B%E(:NR,MM,KK)))
-         ELSE
-            KC = NXCHOPDIM+2-KC  ! MAPPED TO POSITIVE K INDICES
-            WK1 = REAL(B%E(:NR,MM,KK)*CONJG(A%E(:NR,MM,KK)))
-         ENDIF
-         PRODUCT_MK(MM+A%INTH,KC) = PRODUCT_MK(MM+A%INTH,KC) &
-                     +4.0_P8*PI*ZLEN0*ELL2*DOT_PRODUCT(WK1,TFM%W)
-      END DO
-   END DO
-   COUNT = NTCHOP*NXCHOP
-   CALL MPI_ALLREDUCE(MPI_IN_PLACE, PRODUCT_MK, COUNT, &
-                      MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_IVP, IERR)
-   PRODUCT_MK(:,1) = 0.5_P8*PRODUCT_MK(:,1)
-   PRODUCT_MK(1,:) = 0.5_P8*PRODUCT_MK(1,:)
+!    PRODCT_MK_HALFK = 0.D0
+!    DO MM=1,SIZE(A%E,2) !NTCHOP
+!       DO KK=1,SIZE(A%E,3) !NXCHOP
+!          KC = KK+A%INX ! GLB_COORDINATE
+!          IF (KC==1) THEN
+!             WK1 = REAL(A%E(:NR,MM,KK)*CONJG(B%E(:NR,MM,KK)) &
+!                     & +B%E(:NR,MM,KK)*CONJG(A%E(:NR,MM,KK)))
+!          ELSEIF (KC.LE.NXCHOP) THEN
+!             ! WK1 = REAL(A%E(:NR,MM,KK)*CONJG(B%E(:NR,MM,KK)) &
+!             !         & +B%E(:NR,MM,KC)*CONJG(A%E(:NR,MM,KC)))
+!             WK1 = REAL(A%E(:NR,MM,KK)*CONJG(B%E(:NR,MM,KK)))
+!          ELSE
+!             KC = NXCHOPDIM+2-KC  ! MAPPED TO POSITIVE K INDICES
+!             WK1 = REAL(B%E(:NR,MM,KK)*CONJG(A%E(:NR,MM,KK)))
+!          ENDIF
+!          PRODCT_MK_HALFK(MM+A%INTH,KC) = PRODCT_MK_HALFK(MM+A%INTH,KC) &
+!                      +4.0_P8*PI*ZLEN0*ELL2*DOT_PRODUCT(WK1,TFM%W)
+!       END DO
+!    END DO
+!    COUNT = NTCHOP*NXCHOP
+!    CALL MPI_ALLREDUCE(MPI_IN_PLACE, PRODCT_MK_HALFK, COUNT, &
+!                       MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_IVP, IERR)
+!    PRODCT_MK_HALFK(:,1) = 0.5_P8*PRODCT_MK_HALFK(:,1)
+!    PRODCT_MK_HALFK(1,:) = 0.5_P8*PRODCT_MK_HALFK(1,:)
 
-   RETURN
-END FUNCTION PRODUCT_MK
-! ======================================================================
+!    RETURN
+! END FUNCTION PRODCT_MK_HALFK
+! ! ======================================================================
 FUNCTION ENERGY_SPEC(PSI,CHI)
 ! ======================================================================
 ! [USAGE]:
@@ -649,7 +643,7 @@ FUNCTION ENERGY_SPEC(PSI,CHI)
    W2%LN = 0.0_P8
    CALL RTRAN(W1,1)
    CALL RTRAN(W2,1)
-   ENERGY_SPEC = -PRODUCT_MK(W1,W2)
+   ENERGY_SPEC = -PRODCT_MK_HALFK(W1,W2)
 
    ! ENERGY IN POLOIDAL COMPONENT
    CALL DEL2(CHI,W1)
@@ -658,7 +652,7 @@ FUNCTION ENERGY_SPEC(PSI,CHI)
    W2%LN = 0.0_P8
    CALL RTRAN(W1,1)
    CALL RTRAN(W2,1)
-   ENERGY_SPEC = ENERGY_SPEC + PRODUCT_MK(W1,W2)
+   ENERGY_SPEC = ENERGY_SPEC + PRODCT_MK_HALFK(W1,W2)
    CALL CHOPSET(-3)
    CALL DEALLOCATE(W1)
    CALL DEALLOCATE(W2)

@@ -116,9 +116,13 @@ PUBLIC:: INTEGH                                                    ! AVAILABLE O
 PUBLIC:: INTEG_MK                                                  ! AVAILABLE ONLY WHEN SPACE = PFF
 ! PRODUCT & INTEGRATE F=A*B*(1-X)**2. OVER THE DOMAIN
 PUBLIC:: PRODCT                                                    ! AVAILABLE ONLY WHEN SPACE = PFF
-PUBLIC:: PRODCT_MK                                                 ! AVAILABLE ONLY WHEN SPACE = PFF
+PUBLIC:: PRODCT_MK, PRODCT_MK_ALLK, PRODCT_MK_HALFK                ! AVAILABLE ONLY WHEN SPACE = PFF
 ! TEST IF A SCALAR CONTAINS NAN
 PUBLIC:: TEST_NAN
+
+INTERFACE PRODCT_MK
+  MODULE PROCEDURE PRODCT_MK_ALLK
+END INTERFACE PRODCT_MK
 
 CONTAINS
 !=======================================================================
@@ -395,9 +399,6 @@ FUNCTION PRODCT(A,B)
 ! B >> SECOND SCALAR-TYPE VARIABLE FOR INTEGRATION
 ! [OUTPUTS]:
 ! PRODCT >> INTEGRATION EQUAL TO INT_[FULL_RANGE](G(R,PHI,Z) DR DPHI DZ)
-! [UPDATES]:
-! RE-CODED BY SANGJOON LEE @ NOV 18 2020
-! MPI-ED BY JINGE WANG @ SEP 29 2021
 !=======================================================================
 IMPLICIT NONE
 TYPE(SCALAR),INTENT(IN):: A,B
@@ -449,15 +450,15 @@ DO KK = 1,SIZE(A%E,3)
     ENDIF
   ENDDO
 ENDDO
-PRODCT = SUM((PROD*TFM%W)*TFM%PF(1,1,1))
+PRODCT = SUM(PROD*TFM%W)
 
 CALL MPI_ALLREDUCE(MPI_IN_PLACE, PRODCT, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_IVP, IERR)
-PRODCT = 4*PI*ZLEN*ELL2*PRODCT*TFM%NORM(1,1)
+PRODCT = 2*PI*ZLEN*ELL2*PRODCT
 
 RETURN
 END FUNCTION PRODCT
 !=======================================================================
-FUNCTION PRODCT_MK(A,B)
+FUNCTION PRODCT_MK_ALLK(A,B)
 ! ======================================================================
 ! [USAGE]:
 ! CALCULATE THE PRODUCT AND INTEGRATE OVER THE DOMAIN FOR EACH M AND K
@@ -473,7 +474,7 @@ FUNCTION PRODCT_MK(A,B)
 IMPLICIT NONE
 TYPE(SCALAR):: A,B
 REAL(P8):: WK1(NR)
-REAL(P8):: PRODCT_MK(NTCHOP,NXCHOPDIM) !NX)
+REAL(P8):: PRODCT_MK_ALLK(NTCHOP,NXCHOPDIM) !NX)
 INTEGER:: MM,KK,COUNT
 
 IF(A%SPACE.NE.PFF_SPACE .OR. B%SPACE.NE.PFF_SPACE) THEN
@@ -491,7 +492,7 @@ IF ((A%INTH.EQ.0).AND.(A%INX.EQ.0)) THEN
   ENDIF
 ENDIF
 
-PRODCT_MK = 0.D0
+PRODCT_MK_ALLK = 0.D0
 DO MM=1,SIZE(A%E,2) !NTCHOP
   DO KK=1,SIZE(A%E,3) !NXCHOP
       WK1 = REAL( A%E(:NR,MM,KK)*CONJG(B%E(:NR,MM,KK)) )
@@ -500,18 +501,47 @@ DO MM=1,SIZE(A%E,2) !NTCHOP
       !       So, for {0,KK}, we should not add {0,-KK} during the calculation,
       !       as {0,-KK} is actually saved. Hence, all MM = 0 modes' product is
       !       off by a factor of 2.
-      PRODCT_MK(MM+A%INTH,KK+A%INX) = &
+      PRODCT_MK_ALLK(MM+A%INTH,KK+A%INX) = &
               4.0_P8*PI*ZLEN0*ELL2*DOT_PRODUCT(WK1,TFM%W)
   END DO
 END DO
 
 COUNT = NTCHOP*NXCHOPDIM
-CALL MPI_ALLREDUCE(MPI_IN_PLACE, PRODCT_MK, COUNT, &
+CALL MPI_ALLREDUCE(MPI_IN_PLACE, PRODCT_MK_ALLK, COUNT, &
                   MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_IVP, IERR)
-PRODCT_MK(1,:) = 0.5_P8*PRODCT_MK(1,:)
+PRODCT_MK_ALLK(1,:) = 0.5_P8*PRODCT_MK_ALLK(1,:)
 
 RETURN
-END FUNCTION PRODCT_MK
+END FUNCTION PRODCT_MK_ALLK
+! ======================================================================
+FUNCTION PRODCT_MK_HALFK(A,B)
+! ======================================================================
+! [USAGE]:
+! COMPUTE INT (1-X^2)*A*B RDR D(PHI) DZ OVER THE ENTIRE DOMAIN AND FOLD
+! THE CONTRIBUTIONS INTO NON-NEGATIVE M AND K MODES.
+! [PARAMETERS]:
+! A, B >> SCALAR TYPE VARIABLES IN PFF_SPACE.
+! [NOTES]:
+! THIS FUNCTION COMPUTES THE DOT PRODUCT FOR ALL MODES BUT STORE THEM
+! INTO NON-NEGATIVE M AND K MODES ONLY. 
+! ======================================================================
+
+   IMPLICIT NONE
+   TYPE(SCALAR):: A,B
+   REAL(P8):: PRODCT_MK_HALFK(NTCHOP,NXCHOP), PRODCT_MK_ALL(NTCHOP,NXCHOPDIM)
+   INTEGER:: KK,KC
+
+   PRODCT_MK_ALL = PRODCT_MK_ALLK(A,B)
+
+   PRODCT_MK_HALFK = 0.D0
+   PRODCT_MK_HALFK(:,1) = PRODCT_MK_ALL(:,1) ! K = 0
+   DO KK=2,NXCHOP
+      KC = NXCHOPDIM+2-KK
+      PRODCT_MK_HALFK(:,KK) = PRODCT_MK_ALL(:,KC)+PRODCT_MK_ALL(:,KK)
+   ENDDO
+
+   RETURN
+END FUNCTION PRODCT_MK_HALFK
 ! ======================================================================
 FUNCTION INTEGH(F,AIN,BIN)
 !=======================================================================
