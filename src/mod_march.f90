@@ -695,7 +695,7 @@ CONTAINS
 ! RE-CODED BY SANGJOON LEE @ NOV 20 2020
 !=======================================================================
   IMPLICIT NONE
-  TYPE(SCALAR):: PSI,CHI
+  TYPE(SCALAR),INTENT(IN):: PSI,CHI
 
   TYPE(SCALAR):: RUR,RUP,UZH
   TYPE(SCALAR):: ROR,ROP,OZH
