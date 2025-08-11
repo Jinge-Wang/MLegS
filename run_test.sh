@@ -1,14 +1,14 @@
 #!/bin/bash
-# SBATCH script to run test_prodct on the cluster
+# SBATCH script to run bsnsq_test on the cluster
 
 #SBATCH -A phy220056          # Allocation name
 #SBATCH --nodes=1             # Total # of nodes
-#SBATCH --ntasks-per-node=4   # Total # of MPI tasks per node
-#SBATCH --cpus-per-task=4
-#SBATCH --time=00:02:00
-#SBATCH -J test_prodct
-#SBATCH -o test_prodct.o%j
-#SBATCH -e test_prodct.e%j
+#SBATCH --ntasks-per-node=16  # Total # of MPI tasks per node
+#SBATCH --cpus-per-task=2
+#SBATCH --time=00:10:00
+#SBATCH -J bsnsq_test
+#SBATCH -o bsnsq_test.o%j
+#SBATCH -e bsnsq_test.e%j
 #SBATCH -p shared
 #SBATCH --mail-user=jinge@berkeley.edu
 #SBATCH --mail-type=end
@@ -19,6 +19,9 @@ module list
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 
-echo "Running test_prodct with $SLURM_NTASKS MPI tasks"
+# REMOVE ALL OUTPUT FILES
+rm -f ./output/*
 
-srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/test_prodct_exec
+echo "Running bsnsq_test with $SLURM_NTASKS MPI tasks"
+
+srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/bsnsq_test_exec

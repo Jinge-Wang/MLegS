@@ -60,7 +60,7 @@ TIME_INTEG
 # ---------------------------------------------------------------------
 VISCOSITY
 #     SW      NU     NUP       P --(SWITCH, VISCOSITY, HYPERV, HELMPOW)
-       1    0.00001  0.000000001    6
+       0    0.00001  0.000000001    6
 # ---------------------------------------------------------------------
 NUP_ADJUST
 #  ADJSW  ADJINT -(HYPERV ADJUSTMENT SWITCH & FOR EVERY 'ADJINT' STEPS)
