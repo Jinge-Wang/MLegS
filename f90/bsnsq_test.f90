@@ -27,20 +27,8 @@ type(scalar):: psi_tot,chi_tot,b_per
 type(scalar):: dpsi,dchi,db
 logical:: file_save = .TRUE.
 
-! INITIALIZE MPI
-CALL MPI_INIT_THREAD(MPI_THREAD_SERIALIZED,MPI_THREAD_MODE,IERR)
-IF (MPI_THREAD_MODE.LT.MPI_THREAD_SERIALIZED) THEN
-   WRITE(*,*) 'The threading support is lesser than that demanded.'
-   CALL MPI_ABORT(MPI_COMM_WORLD,1,IERR)
-ENDIF
-CALL MPI_COMM_RANK(MPI_COMM_WORLD, MPI_RANK, IERR)
-
-! READ INPUTS AND INITIALIZE MAPPED LEGENDRE POLYNOMIALS
-CALL READCOM('NOECHO')
-CALL READIN(5)
-CALL LEGINIT()
-CALL PRINT_MPI_STRATEGY(FILES%SAVEDIR)
-IF (MPI_RANK.EQ.0) CALL SAVEDIN()
+CALL SETUP_ENVIRONMENT('NOECHO')
+CALL SETUP_GRID(FILES%SAVEDIR)
 
 ! INITIALIZE FIELDS
 CALL allocate(psi_tot); call random_noise(psi_tot)
@@ -526,14 +514,8 @@ subroutine combine_mode_files(mode_num, k_ind_tot, output_dir)
    
    print *, 'Successfully created combined file: ', trim(output_filename)
 
-   ! Remove old individual files
-   do j = 1, k_ind_tot
-      write(filename, '(A,I8,A)') './output/mode_data_rank_', MPI_RANK, '.output'
-      inquire(file=trim(input_filename), exist=file_exists)
-      if (file_exists) then
-         call delete_file(trim(filename))
-      endif
-   enddo
+   ! Remove all files in output_dir matching m<mode_num>_mode_rank_*.output
+   call system('rm -f '//trim(output_dir)//'/m'//trim(mode_str)//'_mode_rank_*.output')
 
    return
    

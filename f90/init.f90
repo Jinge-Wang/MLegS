@@ -47,22 +47,6 @@ INTEGER     :: MPI_PROCS
 ! DEBUG
 COMPLEX(P8),DIMENSION(:,:,:),ALLOCATABLE:: GLB_ARRAY
 
-! CALL MPI_INIT(IERR)
-CALL MPI_INIT_THREAD(MPI_THREAD_SERIALIZED,MPI_THREAD_MODE,IERR)
-IF (MPI_THREAD_MODE.LT.MPI_THREAD_SERIALIZED) THEN
-    WRITE(*,*) 'The threading support is lesser than that demanded.'
-    CALL MPI_ABORT(MPI_COMM_WORLD,1,IERR)
-ENDIF
-! CALL MPI_COMM_SIZE(MPI_COMM_WORLD, MPI_PROCS, IERR)
-CALL MPI_COMM_RANK(MPI_COMM_WORLD, MPI_RANK, IERR)
-
-IF(MPI_RANK.EQ.0) THEN
-WRITE(*,*) 'PROGRAM STARTED'
-CALL PRINT_REAL_TIME()   ! @ MOD_MISC
-ENDIF
-
-! TYPE '%read.input' TO READ THE INPUT VALUES FROM read.input
-CALL READCOM('NOECHO')   ! TURN OFF THE ECHO MODE
 ! ======================================================================
 ! NOTE:
 ! ======================================================================
@@ -73,8 +57,8 @@ CALL READCOM('NOECHO')   ! TURN OFF THE ECHO MODE
 ! MY LOCAL COMPUTER, THE TWO METHODS ARE ABOUT THE SAME SPEED. MUST TEST
 ! THEM IN THE SUPER COMPUTERS.
 ! ======================================================================
-CALL READIN(5)           ! @ MOD_INIT
-CALL LEGINIT()
+CALL SETUP_ENVIRONMENT('NOECHO')
+CALL SETUP_GRID()
 
 ! ===== USE MPI_BCAST RATHER THAN ALL PROCS READING THE SAME FILE ======
 ! ===================== TURNS OUT TO BE VERY SLOW ======================
@@ -83,11 +67,11 @@ CALL LEGINIT()
 ! IF (MPI_RANK.EQ.0) CALL READIN(5)
 ! CALL MPI_BARRIER(MPI_COMM_IVP,IERR)
 ! CALL READ_SYNC()
-! CALL LEGINIT()
+! CALL SETUP_GRID()
 ! ======================================================================
 
 IF (MPI_RANK.EQ.0) THEN
-  CALL COLLOC_INFO()
+  CALL COLLOC_INFO(FILES%SAVEDIR)
 
   ! NR: # OF RADIAL COLLOC. PTS
   ! NTH: # OF AZIMUTHAL COLLOC. PTS
@@ -289,8 +273,6 @@ CALL MPI_FINALIZE(IERR)
 !=======================================================================
 !=================== PROGRAM-DEPENDENT SUBROUTINES =====================
 !=======================================================================
-!       SUBROUTINE COLLOC_INFO() ! MOVED TO MOD_DIAGNOSTICS
-! ======================================================================
 contains
 
 subroutine save_glb(GLB_DATA,FILENAME)

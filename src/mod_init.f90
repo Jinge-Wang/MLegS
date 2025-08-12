@@ -1,13 +1,44 @@
+!=======================================================================
+! MODULE: MOD_INIT
+!=======================================================================
+!
+!> @author Jinge Wang
+!> @brief This module handles the initialization of the simulation.
+!> It reads the input parameters and initializes the environment.
+!=======================================================================
+!
+! DEPENDENCIES:
+!
+!-----------------------------------------------------------------------
+! Standard Libraries:
+!-----------------------------------------------------------------------
+! - OMP_LIB: OpenMP library for parallel processing.
+! - MPI: Message Passing Interface for distributed memory parallelism.
+!-----------------------------------------------------------------------
+! Project-Specific Modules:
+!-----------------------------------------------------------------------
+! - MOD_MISC:
+!   - P4, P8, PI, IU, SPY, MSAVE, MLOAD, ATOF, ITOA3, PRINT_REAL_TIME
+! - MOD_SCALAR3:
+!   - NR, NTH, NX, NRCHOP, NTCHOP, NXCHOP, ZLEN, ZLEN0, ELL, MKLINK,
+!     MINC
+! - MOD_LEGOPS:
+!   - NADD (derived type)
+! - MOD_LAYOUT:
+!   - QPAIR (derived type)
+! - MOD_BOUSSINESQ:
+!   - BSNSQ (derived type)
+! - MOD_MARCH:
+!   - DIAGV, ADV, RMV, VISC, TIM, FILES, LIN, VELMON, MONITORDATA,
+!     POSTPROCESS (derived types)
+! - MOD_DIAGNOSTICS:
+!   - MONITOR_MK (array)
+!=======================================================================
 MODULE MOD_INIT ! LEVEL 6 MODULE
 USE OMP_LIB
 USE MPI
-USE MOD_MISC, ONLY : P4,P8,PI,IU,SPY,MSAVE,MLOAD,ATOF,ITOA3        ! LEVEL 0
-!XUSE USE MOD_FD                                                         ! LEVEL 1
-!XUSE USE MOD_EIG                                                        ! LEVEL 1
-!XUSE USE MOD_LIN_LEGENDRE                                               ! LEVEL 1
-!XUSE USE MOD_BANDMAT                                                    ! LEVEL 1
+USE MOD_MISC                                                       ! LEVEL 0
 USE MOD_SCALAR3                                                    ! LEVEL 2
-USE MOD_FFT                                                        ! LEVEL 2.5
 USE MOD_LEGOPS                                                     ! LEVEL 3
 USE MOD_LAYOUT                                                     ! LEVEL 3
 USE MOD_BOUSSINESQ
@@ -25,14 +56,15 @@ INTEGER:: IESAV,IREAD                                              ! USED IN REA
 !=======================================================================
 !======================== PUBLIC DECLARATION ===========================
 !=======================================================================
+PUBLIC :: SETUP_ENVIRONMENT
 ! READ COMMANDS
-PUBLIC :: READCOM
+PRIVATE :: READCOM
 ! SHIFT THE CONTENTS OF AN INPUT ARRAY BY OPEN
-PUBLIC :: SHIFTCOM
+PRIVATE :: SHIFTCOM
 ! READ INITIAL VALS FROM KEYBOARD OR INPUT FILE (ENTER %FILENAME)
-PUBLIC :: READIN
+PRIVATE :: READIN
 ! SYNC READIN INFO FROM MASTER MODE
-PUBLIC :: READ_SYNC
+PRIVATE :: READ_SYNC
 ! SAVE THE INPUTS USED
 PUBLIC :: SAVEDIN
 !=======================================================================
@@ -50,6 +82,43 @@ END INTERFACE
 CONTAINS
 !=======================================================================
 !============================ SUBROUTINES ==============================
+!=======================================================================
+SUBROUTINE SETUP_ENVIRONMENT(ECHO_MODE)
+!=======================================================================
+! [USAGE]:
+! SETS UP THE EXECUTION ENVIRONMENT.
+! [PARAMETERS]:
+! ECHO_MODE >> (OPTIONAL) ECHO MODE ('ECHO' OR 'NOECHO')
+!=======================================================================
+IMPLICIT NONE
+CHARACTER(LEN=*),OPTIONAL:: ECHO_MODE
+
+CALL MPI_INIT_THREAD(MPI_THREAD_SERIALIZED,MPI_THREAD_MODE,IERR)
+IF (MPI_THREAD_MODE.LT.MPI_THREAD_SERIALIZED) THEN
+   WRITE(*,*) 'The threading support is lesser than that demanded.'
+   CALL MPI_ABORT(MPI_COMM_WORLD,1,IERR)
+ENDIF
+CALL MPI_COMM_RANK(MPI_COMM_WORLD, MPI_RANK, IERR)
+
+IF (MPI_RANK .EQ. 0) THEN
+  WRITE(*,*) 'PARALLEL PROGRAM STARTED'
+  CALL PRINT_REAL_TIME()
+ENDIF
+
+IF (PRESENT(ECHO_MODE)) THEN
+  CALL READCOM(ECHO_MODE)
+ELSE
+  CALL READCOM('NOECHO')
+ENDIF
+
+CALL READIN(5)
+IF (MPI_RANK .EQ. 0) THEN
+  WRITE(*,*) 'PARAMETERS READ COMPLETED'
+  CALL SAVEDIN()
+ENDIF
+
+RETURN
+END SUBROUTINE SETUP_ENVIRONMENT
 !=======================================================================
 SUBROUTINE ECHO(C) ! FAMILY OF READCOM
 !=======================================================================
@@ -154,7 +223,8 @@ NDIM = SIZE(CMD,1)
 DO  I=1,NDIM
   CMD(I)=' '
 ENDDO
-  
+
+! COMMENT OUT THIS IF STATEMENT TO ALLOW KEYBOARD PROMPT
 IF(IEXEC.EQ.0) THEN
   IREAD = 18
   DO 
@@ -167,7 +237,6 @@ IF(IEXEC.EQ.0) THEN
   IESAV=IECHO
   IECHO=0
 ENDIF
-
 
 1    CONTINUE
 
@@ -336,8 +405,7 @@ SUBROUTINE READIN0(IR)
 ! IR >> IF 5, READ COMMAND FROM KEYBOARD
 !       IF 5 AND ENTER '%FILENAME', START READING COMMANDS FROM FILE
 ! [DEPENDENCIES]:
-! 1. LEGINIT(~) @ MOD_LIN_SCALAR3
-! 2. READCOM(~) @ MOD_INIT
+! 1. READCOM(~) @ MOD_INIT
 ! [UPDATES]:
 ! RE-CODED BY SANGJOON LEE @ NOV 10 2020
 !======================================================================= 

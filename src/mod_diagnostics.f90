@@ -36,8 +36,6 @@ MODULE MOD_DIAGNOSTICS ! LEVEL 5 MODULE
    ! WRITE ENERGY AND MODE DATA TO FILE
    PUBLIC:: WRITE_ENERGY_DATA_TO_FILE
    PUBLIC:: WRITE_MODE_DATA_TO_FILE
-   ! SAVE COLLOCATION INFO
-   PUBLIC:: COLLOC_INFO
    ! CALCULATE MAXIMUM AZIMUTHAL VELOCITY
    PUBLIC:: MAXVELP
    ! NORMALIZATIONS:
@@ -520,34 +518,6 @@ SUBROUTINE WRITE_MODE_DATA_TO_FILE(PSI,CHI,SPACE_FLAG)
    DEALLOCATE(PSI_GLB,CHI_GLB)
 
 END SUBROUTINE WRITE_MODE_DATA_TO_FILE
-! ======================================================================
-
-SUBROUTINE COLLOC_INFO()
-!=======================================================================
-   IMPLICIT NONE
-
-      ! SAVE THE RADIAL COLLOCATION POINTS (R)
-      CALL MSAVE(TFM%R, TRIM(ADJUSTL(FILES%SAVEDIR))//&
-      'r_colloc_pts.dat')
-
-      ! SAVE THE X COLLOCATION POINTS (X)
-      CALL MSAVE(TFM%X, TRIM(ADJUSTL(FILES%SAVEDIR))//&
-         'x_colloc_pts.dat')
-
-      ! SAVE THE GAUSS_LEGENDRE WEIGHTS (W)
-      CALL MSAVE(TFM%W, TRIM(ADJUSTL(FILES%SAVEDIR))//&
-         'gau_leg_weights.dat')
-
-      ! SAVE THE AZIMUTHAL COLLOCATION POINTS (THETA)
-      CALL MSAVE(TFM%TH, TRIM(ADJUSTL(FILES%SAVEDIR))//&
-         't_colloc_pts.dat')
-
-      ! SAVE THE AXIAL COLLOCATION POINTS (Z)
-      CALL MSAVE(TFM%Z, TRIM(ADJUSTL(FILES%SAVEDIR))//&
-         'z_colloc_pts.dat')
-
-   RETURN
-END SUBROUTINE COLLOC_INFO
 
 !=======================================================================
 !============================ FUNCTIONS ================================

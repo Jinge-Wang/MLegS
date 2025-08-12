@@ -2,7 +2,7 @@ MODULE MOD_FFT ! LEVEL 2.5 MODULE
 ! FFT ROUTINES & MPI OPERATIONS
     USE OMP_LIB
     USE MPI
-    USE MOD_MISC, ONLY : P4,P8,PI,IU,ITOA3,CP8_SIZE,MCAT                   ! LEVEL 0
+    USE MOD_MISC, ONLY : P4,P8,PI,IU,ITOA3,CP8_SIZE,MSAVE              ! LEVEL 0
     USE MOD_EIG                                                        ! LEVEL 1
     USE MOD_LIN_LEGENDRE                                               ! LEVEL 1
     USE MOD_SCALAR3                                                    ! LEVEL 2
@@ -95,16 +95,16 @@ MODULE MOD_FFT ! LEVEL 2.5 MODULE
 
 ! =========================== FFT UTILITIES ============================
 ! INITIALIZE ALL SPECTRAL METHOD PARAMETERS AND SET THE TFM KIT:
-PUBLIC:: LEGINIT
+PUBLIC:: SETUP_GRID, LEGINIT, COLLOC_INFO
 ! ALLOCATE/DEALLOCATE MEMORY TO VARIABLES OF "TYPE(SCALAR)":
-PUBLIC:: ALLOCATE, DEALLOCATE                                      ! ALLOCATE(A,SPACE) ALLOCATES MEMORY FOR THE ???_SPACE (??? = PPP, PFP, PFF, FFF)
+PUBLIC:: ALLOCATE, DEALLOCATE
 ! WRAPPER FOR "EQUAL" OPERATOR (COPY0) AMONG TYPE(SCALAR) VARS.:
 PUBLIC:: ASSIGNMENT(=)
 ! PERFORM THE FFT IN THETA (=HORFFT) AND Z (=VERFFT) DIRECTIONS:
 PUBLIC:: HORFFT
 PUBLIC:: VERFFT
-! TRANSFORMS AMONG PPP, PFP, PFF, AND FFF SPACES:
-PUBLIC:: RTRAN                                                     ! FOR EXAMPLE, RTRAN(A,1) TRANSFORMS FROM FFF_SPACE(FUNCTION) TO PFF_SPACE(PHYSICAL).
+! PERFORM MLEGS TRANSFORMATION
+PUBLIC:: RTRAN
 PUBLIC:: TOFF,TOFP
     
 ! =========================== MPI UTILITIES ============================
@@ -113,7 +113,7 @@ PUBLIC:: SUBCOMM_CART, DECOMPOSE
 ! ASSEMBLE LOCAL ARRAY INTO GLOBAL ARRAY:
 PUBLIC:: MASSEMBLE, MDISASSEMBLE
 ! LOAD/SAVE A MATRIX WITH TYPE(SCALAR) FROM/INTO A SPECIFIED FILE
-PUBLIC:: MLOAD,MSAVE                                               ! SIMLIAR TO MLOAD & MSAVE IN MOD_MISC FOR GENERAL MATRICES, BUT FOR TYPE(SCALAR)
+PUBLIC:: MLOAD, MSAVE
 PUBLIC:: EXCHANGE_3DCOMPLEX_FAST
 PUBLIC:: PRINT_MPI_STRATEGY, MPRINT
 
@@ -161,8 +161,21 @@ CONTAINS
 !=======================================================================
 !============================ SUBROUTINES ==============================
 !=======================================================================
-! SUBROUTINE LEGINIT(NRIN,NTHIN,NXIN,NRCHOPIN,NTCHOPIN,NXCHOPIN,&
-!     ZLENIN,ELLIN,MKLINKIN,MINCIN)
+SUBROUTINE SETUP_GRID(SAVEDIR)
+!=======================================================================
+! [USAGE]:
+! INITIALIZE PHYSICAL AND SPECTRAL DOMAINS AND TRANSFORMATION KITS
+! [PARAMETERS]:
+! SAVEDIR >> (OPTIONAL) CHARACTER STRING FOR OUTPUT DIRECTORY
+!=======================================================================
+IMPLICIT NONE
+CHARACTER(LEN=*), OPTIONAL :: SAVEDIR
+
+CALL LEGINIT()
+IF (PRESENT(SAVEDIR)) CALL PRINT_MPI_STRATEGY(SAVEDIR)
+
+END SUBROUTINE SETUP_GRID
+!=======================================================================
 SUBROUTINE LEGINIT(MPI_COMM_INPUT, M_INPUT)
 !=======================================================================
 ! [USAGE]: 
@@ -350,7 +363,38 @@ SUBROUTINE LEGINIT(MPI_COMM_INPUT, M_INPUT)
     TYPE_PFF1 = create_new_type3D(SUBCOMM_1, SIZE_PFF1, 1, MPI_DOUBLE_COMPLEX)
 
     RETURN
-    END SUBROUTINE LEGINIT
+END SUBROUTINE LEGINIT
+!=======================================================================
+SUBROUTINE COLLOC_INFO(SAVEDIR)
+!=======================================================================
+! [USAGE]:
+! SAVE PHYSICAL COLLOCATION POINTS
+!=======================================================================
+    IMPLICIT NONE
+    CHARACTER(LEN=*) :: SAVEDIR
+
+    ! SAVE THE RADIAL COLLOCATION POINTS (R)
+    CALL MSAVE(TFM%R, TRIM(ADJUSTL(SAVEDIR))//&
+    'r_colloc_pts.dat')
+
+    ! SAVE THE X COLLOCATION POINTS (X)
+    CALL MSAVE(TFM%X, TRIM(ADJUSTL(SAVEDIR))//&
+        'x_colloc_pts.dat')
+
+    ! SAVE THE GAUSS_LEGENDRE WEIGHTS (W)
+    CALL MSAVE(TFM%W, TRIM(ADJUSTL(SAVEDIR))//&
+        'gau_leg_weights.dat')
+
+    ! SAVE THE AZIMUTHAL COLLOCATION POINTS (THETA)
+    CALL MSAVE(TFM%TH, TRIM(ADJUSTL(SAVEDIR))//&
+        't_colloc_pts.dat')
+
+    ! SAVE THE AXIAL COLLOCATION POINTS (Z)
+    CALL MSAVE(TFM%Z, TRIM(ADJUSTL(SAVEDIR))//&
+        'z_colloc_pts.dat')
+
+    RETURN
+END SUBROUTINE COLLOC_INFO
 !=======================================================================
 SUBROUTINE PRINT_MPI_STRATEGY(SAVEDIR)
 !=======================================================================
@@ -546,7 +590,7 @@ SUBROUTINE PRINT_MPI_STRATEGY(SAVEDIR)
     ENDIF
 
     RETURN
-    END SUBROUTINE PRINT_MPI_STRATEGY
+END SUBROUTINE PRINT_MPI_STRATEGY
 !=======================================================================
 SUBROUTINE SALLOC(A,SP)
 !=======================================================================
@@ -649,7 +693,7 @@ SUBROUTINE SALLOC(A,SP)
     A%IS_ALLOCATED = .FALSE.
 
     RETURN
-    END SUBROUTINE SFREE
+END SUBROUTINE SFREE
 !=======================================================================
 SUBROUTINE COPY0(B,A)
 !=======================================================================
@@ -714,7 +758,7 @@ SUBROUTINE COPY0(B,A)
     ENDIF
 
     RETURN
-    END SUBROUTINE COPY0
+END SUBROUTINE COPY0
 !=======================================================================
 SUBROUTINE HORFFT(A,IS)
 !=======================================================================
@@ -873,7 +917,7 @@ SUBROUTINE HORFFT(A,IS)
     RETURN
 END SUBROUTINE HORFFT
 !=======================================================================
-    SUBROUTINE VERFFT(A,IS)
+SUBROUTINE VERFFT(A,IS)
 !=======================================================================
 ! [USAGE]: 
 ! PERFORM VERTICAL FFT WITH RESPECT TO AXIAL (Z) DIRECTION
@@ -1058,9 +1102,9 @@ END SUBROUTINE HORFFT
     CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
 
     RETURN
-    END SUBROUTINE VERFFT
+END SUBROUTINE VERFFT
 !=======================================================================
-    SUBROUTINE RTRAN(A,IS)
+SUBROUTINE RTRAN(A,IS)
 !=======================================================================
 ! [USAGE]: 
 ! PERFORM MAPPED LEGENDRE TRANSFORM WITH RESPECT TO X (OR R) DIRECTION
@@ -1250,9 +1294,9 @@ END SUBROUTINE HORFFT
     
     CALL CHOPDO(A)
     RETURN
-    END SUBROUTINE RTRAN
+END SUBROUTINE RTRAN
 !=======================================================================
-    SUBROUTINE TOFF(A)
+SUBROUTINE TOFF(A)
 !=======================================================================
 ! [USAGE]: 
 ! TRANSFORM A FROM PPP SPACE TO FFF SPACE
@@ -1279,9 +1323,9 @@ END SUBROUTINE HORFFT
     ENDIF
 
     RETURN
-    END SUBROUTINE TOFF
+END SUBROUTINE TOFF
 !=======================================================================
-    SUBROUTINE TOFP(A)
+SUBROUTINE TOFP(A)
 !=======================================================================
 ! [USAGE]: 
 ! TRANSFORM A FROM FFF SPACE TO PPP SPACE
@@ -1308,9 +1352,9 @@ END SUBROUTINE HORFFT
     ENDIF
     
     RETURN
-    END SUBROUTINE TOFP
+END SUBROUTINE TOFP
 ! ======================================================================
-    subroutine DECOMPOSE(NSIZE,NPROCS,PROC_NUM,NSIZE_PROC,INDEX_PROC)
+SUBROUTINE DECOMPOSE(NSIZE,NPROCS,PROC_NUM,NSIZE_PROC,INDEX_PROC)
 ! ======================================================================
 ! [USAGE]:
 ! DECOMPOSE 1D DOMAIN INTO ALL PROCESSORS
@@ -1341,9 +1385,9 @@ END SUBROUTINE HORFFT
     ! INDEX_PROC = Q * PROC_NUM + MIN(R,PROC_NUM)
 
     RETURN
-    end subroutine DECOMPOSE
+end SUBROUTINE DECOMPOSE
 ! ======================================================================
-    subroutine SUBARRAY(ELEMENT_DATA_TYPE,NDIM,DATASIZE_PROC,DIM,NPROCS,NEW_DATA_TYPE)
+SUBROUTINE SUBARRAY(ELEMENT_DATA_TYPE,NDIM,DATASIZE_PROC,DIM,NPROCS,NEW_DATA_TYPE)
 ! ======================================================================
 ! [USAGE]: CREATE SUBARRAY DATATYPES FOR EACH PROC. ORIGINAL ARRAY IS DE
 ! COMPOSED ALONG DIM INTO SUBARRAYS.
@@ -1385,10 +1429,10 @@ END SUBROUTINE HORFFT
     ENDDO
 
     RETURN
-    END subroutine SUBARRAY
+END SUBROUTINE SUBARRAY
 ! ======================================================================
-    subroutine EXCHANGE_3DCOMPLEX(COMM,DATA_SIZE_PROC_OLD,ARRAY_PROC_OLD,DIM_OLD &
-                                      ,DATA_SIZE_PROC_NEW,ARRAY_PROC_NEW,DIM_NEW)
+SUBROUTINE EXCHANGE_3DCOMPLEX(COMM,DATA_SIZE_PROC_OLD,ARRAY_PROC_OLD,DIM_OLD &
+                                    ,DATA_SIZE_PROC_NEW,ARRAY_PROC_NEW,DIM_NEW)
 ! ======================================================================
 ! [USAGE]:
 ! FOR PROCESSOR GROUP 'COMM', SWAP DIM_OLD AND DIM_NEW.
@@ -1443,10 +1487,10 @@ END SUBROUTINE HORFFT
 
     DEALLOCATE(DATA_TYPE_OLD, DATA_TYPE_NEW, counts, displs)
 
-    end subroutine EXCHANGE_3DCOMPLEX
+end SUBROUTINE EXCHANGE_3DCOMPLEX
 ! ======================================================================
-    subroutine EXCHANGE_3DCOMPLEX_FAST(COMM,ARRAY_PROC_OLD,DATA_TYPE_OLD &
-                                           ,ARRAY_PROC_NEW,DATA_TYPE_NEW)
+SUBROUTINE EXCHANGE_3DCOMPLEX_FAST(COMM,ARRAY_PROC_OLD,DATA_TYPE_OLD &
+                                        ,ARRAY_PROC_NEW,DATA_TYPE_NEW)
 ! ======================================================================
 ! [USAGE]:
 ! FOR PROCESSOR GROUP 'COMM', SWAP DIM_OLD AND DIM_NEW.
@@ -1504,9 +1548,9 @@ END SUBROUTINE HORFFT
 
     DEALLOCATE(counts, displs)
 
-    end subroutine EXCHANGE_3DCOMPLEX_FAST
+end SUBROUTINE EXCHANGE_3DCOMPLEX_FAST
 ! ======================================================================
-    subroutine SUBCOMM_CART(COMM,NDIM,SUBCOMMS)
+SUBROUTINE SUBCOMM_CART(COMM,NDIM,SUBCOMMS)
 ! ======================================================================
 ! [USAGE]:
 ! CREATE COMMUNICATORS (SUBCOMMS(I)) FOR EACH DIMENSION(I) THAT HAS CART
@@ -1582,9 +1626,9 @@ END SUBROUTINE HORFFT
 
     ! CALL MPI_COMM_FREE(COMM_CART,IERR)      
 
-    end subroutine SUBCOMM_CART
+end SUBROUTINE SUBCOMM_CART
 ! ======================================================================
-    SUBROUTINE MASSEMBLE(LOCAL_ARRAY, GLOBAL_ARRAY, axis)
+SUBROUTINE MASSEMBLE(LOCAL_ARRAY, GLOBAL_ARRAY, axis)
 ! ======================================================================
 ! [USAGE]: 
 ! ASSEMBLE COMPLEX LOCAL ARRAYS INTO GLOBAL ARRAY IN PROC#0
@@ -1706,9 +1750,6 @@ END SUBROUTINE HORFFT
                             GLOBAL_ARRAY, RECVCOUNT, DISPLACEMENT, MPI_Datatype, &
                             0, SUBCOMM_R, IERR)
 
-            ! DEBUG:
-            ! CALL MCAT(SUBGLOBAL_ARRAY(1,:,:))
-
         ELSEIF (axis.EQ.2) THEN
 
             ALLOCATE(GLOBAL_ARRAY_COPY(N2_glb,N1_glb,N3_glb))
@@ -1718,18 +1759,15 @@ END SUBROUTINE HORFFT
             GLOBAL_ARRAY = RESHAPE(GLOBAL_ARRAY_COPY,SHAPE(GLOBAL_ARRAY),ORDER = [2,1,3]) ! NEED TO REORDER
             DEALLOCATE(GLOBAL_ARRAY_COPY)
 
-            ! DEBUG:
-            ! CALL MCAT(SUBGLOBAL_ARRAY(:,3,:))        
-
         ENDIF    
     ENDIF                 
 
     CALL MPI_TYPE_FREE(SUBARRAY_TYPE_resized,IERR)
     DEALLOCATE(LOCAL_ARRAY2,SUBGLOBAL_ARRAY,RECVCOUNT,DISPLACEMENT)
 
-    END SUBROUTINE MASSEMBLE
+END SUBROUTINE MASSEMBLE
 ! ======================================================================
-    SUBROUTINE MDISASSEMBLE(GLOBAL_ARRAY, LOCAL_ARRAY, axis)
+SUBROUTINE MDISASSEMBLE(GLOBAL_ARRAY, LOCAL_ARRAY, axis)
 ! ======================================================================
 ! [USAGE]:
 ! DISASSEMBLE COMPLEX GLOBAL ARRAY IN PROC#0 INTO LOCAL ARRAYS
@@ -1810,8 +1848,6 @@ END SUBROUTINE HORFFT
             CALL MPI_SCATTERV(GLOBAL_ARRAY, RECVCOUNT, DISPLACEMENT, MPI_Datatype, &
                             SUBGLOBAL_ARRAY, N1_glb*N2_glb*N3_loc, MPI_Datatype, &
                             0, SUBCOMM_R, IERR)
-            ! DEBUG:
-            ! CALL MCAT(SUBGLOBAL_ARRAY(1,:,:))
 
         ELSEIF (axis.EQ.2) THEN ! SUBCOMMS_L,axis,SUBCOMMS_R
 
@@ -1826,9 +1862,6 @@ END SUBROUTINE HORFFT
                             SUBGLOBAL_ARRAY, N1_glb*N2_glb*N3_loc, MPI_Datatype, &
                             0, SUBCOMM_R, IERR)
             DEALLOCATE(GLOBAL_ARRAY_COPY)
-
-            ! DEBUG:
-            ! CALL MCAT(SUBGLOBAL_ARRAY(:,3,:))
 
         ENDIF
 
@@ -1906,9 +1939,9 @@ END SUBROUTINE HORFFT
     IF (ALLOCATED(SUBGLOBAL_ARRAY)) DEALLOCATE(SUBGLOBAL_ARRAY)
     DEALLOCATE(LOCAL_ARRAY2,RECVCOUNT,DISPLACEMENT)
 
-    END SUBROUTINE MDISASSEMBLE
+END SUBROUTINE MDISASSEMBLE
 ! ======================================================================
-    SUBROUTINE MSAVE0(A,FN,GLB)
+SUBROUTINE MSAVE0(A,FN,GLB)
 !=======================================================================
 ! [USAGE]: 
 ! WRAPPER OF MSAVEX. PASSING ARGUMENTS A AND FN INTO MSAVEX
@@ -1932,9 +1965,9 @@ END SUBROUTINE HORFFT
     ENDIF
 
     RETURN
-    END SUBROUTINE MSAVE0
+END SUBROUTINE MSAVE0
 !=======================================================================
-    SUBROUTINE MSAVEX(A,FN)
+SUBROUTINE MSAVEX(A,FN)
 !=======================================================================
 ! [USAGE]: 
 ! SAVE THE GLOBAL SCALAR-TYPE VARIABLE A INTO FN
@@ -1986,9 +2019,9 @@ END SUBROUTINE HORFFT
     CLOSE(7)
 
     RETURN
-    END SUBROUTINE MSAVEX
+END SUBROUTINE MSAVEX
 !=======================================================================
-    SUBROUTINE MPISAVEX(local_scalar,FN)
+SUBROUTINE MPISAVEX(local_scalar,FN)
 ! ======================================================================
 ! [USAGE]: 
 ! SAVE THE LOCAL SCALAR-TYPE VARIABLE local_scalar INTO FN
@@ -2071,15 +2104,10 @@ END SUBROUTINE HORFFT
     CALL MPI_FILE_WRITE_ALL(MPIFILE, local_scalar%E, LOCAL_ARRAYSIZE, MPI_DOUBLE_COMPLEX, MPISTATUS, IERR)
     CALL MPI_FILE_CLOSE(MPIFILE, IERR)
     CALL MPI_TYPE_FREE(FILEBLK, IERR)
-    
-    ! DEBUG:
-    ! IF (PROC_NUM.EQ.0) THEN
-    !     CALL MCAT(REAL(LOCAL_ARRAYS(:,1,:)))
-    ! ENDIF
 
-    END subroutine MPISAVEX
+END SUBROUTINE MPISAVEX
 ! ======================================================================
-    SUBROUTINE MLOAD0(FN,A,GLB)
+SUBROUTINE MLOAD0(FN,A,GLB)
 !=======================================================================
 ! [USAGE]: 
 ! WRAPPER OF MLOADX. PASSING ARGUMENTS FN AND A INTO MLOADX
@@ -2103,9 +2131,9 @@ END SUBROUTINE HORFFT
     ENDIF
 
     RETURN
-    END SUBROUTINE MLOAD0
+END SUBROUTINE MLOAD0
 !=======================================================================
-    SUBROUTINE MLOADX(FN,A)
+SUBROUTINE MLOADX(FN,A)
 !=======================================================================
 ! [USAGE]: 
 ! READ VALUES FROM FN AND THEN STORE THEM INTO A SCALR-TYPE VARIABLE A
@@ -2198,142 +2226,142 @@ END SUBROUTINE HORFFT
     ENDIF
 
     RETURN
-    END SUBROUTINE MLOADX
+END SUBROUTINE MLOADX
 ! ======================================================================
-    subroutine MPILOADX(FN,local_scalar)
+SUBROUTINE MPILOADX(FN,local_scalar)
 ! ======================================================================
 ! WRITTEN BY JINGE WANG @ SEP 29 2021
 ! ======================================================================
-        TYPE(SCALAR):: local_scalar
-        CHARACTER(LEN=*):: FN
+    TYPE(SCALAR):: local_scalar
+    CHARACTER(LEN=*):: FN
 
-        INTEGER:: PROC_NUM 
-        INTEGER:: ARRAYSIZE, FILEBLK, LOCAL_ARRAYSIZE
-        INTEGER:: STATUS, MPIFILE, INDEX, MPISTATUS(MPI_STATUS_SIZE)
-        INTEGER(KIND=MPI_ADDRESS_KIND):: DISPLACEMENT
+    INTEGER:: PROC_NUM 
+    INTEGER:: ARRAYSIZE, FILEBLK, LOCAL_ARRAYSIZE
+    INTEGER:: STATUS, MPIFILE, INDEX, MPISTATUS(MPI_STATUS_SIZE)
+    INTEGER(KIND=MPI_ADDRESS_KIND):: DISPLACEMENT
 
-        INTEGER:: INDIMR, INDIMTH, INDIMX, INRCHOPDIM, INTCHOPDIM, INXCHOPDIM
-        INTEGER:: IMINC, IMKLINK
-        REAL(P8):: IZLEN, IELL
-        
-        ! 1. root proc collects all info and bcast to all procs
-        CALL MPI_COMM_RANK(MPI_COMM_IVP, PROC_NUM, IERR)
-        IF (PROC_NUM.EQ.0) THEN
-        
-            OPEN(UNIT=7,FILE=TRIM(FN)//'.info',STATUS='OLD',&
-            FORM='UNFORMATTED',IOSTAT=STATUS)
-        
-            IF(STATUS.NE.0) THEN
-                WRITE(*,*) 'MSAVEX_IN_SCALAR3: ROOT PROC FAILED TO READ ',TRIM(FN),'.info'
-                STOP
-            ENDIF
-        
-            READ(7) INDIMR,INDIMTH,INDIMX
-            READ(7) INRCHOPDIM,INTCHOPDIM,INXCHOPDIM
-            READ(7) local_scalar%SPACE,local_scalar%LN
-            READ(7) IZLEN,IELL
-            READ(7) IMINC,IMKLINK
-            
-            CLOSE(7)
-            WRITE(*,*) 'MPIREAD FROM ',TRIM(FN)
+    INTEGER:: INDIMR, INDIMTH, INDIMX, INRCHOPDIM, INTCHOPDIM, INXCHOPDIM
+    INTEGER:: IMINC, IMKLINK
+    REAL(P8):: IZLEN, IELL
     
-            ! Check consistency
-            IF(IZLEN.NE.ZLEN) THEN
-                WRITE(*,*) 'MLOADX: ZLEN INCONSISTENT.'
-                WRITE(*,*) 'PROG =',ZLEN
-                WRITE(*,*) 'FILE =',IZLEN
-            ENDIF
+    ! 1. root proc collects all info and bcast to all procs
+    CALL MPI_COMM_RANK(MPI_COMM_IVP, PROC_NUM, IERR)
+    IF (PROC_NUM.EQ.0) THEN
     
-            IF(IELL.NE.ELL) THEN
-                WRITE(*,*) 'MLOADX: ELL INCONSISTENT.'
-                WRITE(*,*) 'PROG =',ELL
-                WRITE(*,*) 'FILE =',IELL
-            ENDIF
+        OPEN(UNIT=7,FILE=TRIM(FN)//'.info',STATUS='OLD',&
+        FORM='UNFORMATTED',IOSTAT=STATUS)
     
-            IF(MINC.NE.IMINC) THEN
-                WRITE(*,*) 'MLOADX: MINC INCONSISTENT.'
-                WRITE(*,*) 'PROG =',MINC
-                WRITE(*,*) 'FILE =',IMINC
-            ENDIF
-    
-            IF(MKLINK.NE.IMKLINK) THEN
-                WRITE(*,*) 'MLOADX: MKLINK INCONSISTENT.'
-                WRITE(*,*) 'PROG =',MKLINK
-                WRITE(*,*) 'FILE =',IMKLINK
-            ENDIF
-            ! ! DEBUG:
-            ! WRITE(*,*) IZLEN
-            ! WRITE(*,*) IELL
-            ! WRITE(*,*) INDIMR,INDIMTH,INDIMX
-            ! WRITE(*,*) local_scalar%SPACE,local_scalar%LN
+        IF(STATUS.NE.0) THEN
+            WRITE(*,*) 'MSAVEX_IN_SCALAR3: ROOT PROC FAILED TO READ ',TRIM(FN),'.info'
+            STOP
         ENDIF
-        CALL MPI_BCAST(INDIMR,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
-        CALL MPI_BCAST(INDIMTH,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
-        CALL MPI_BCAST(INDIMX,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
-        CALL MPI_BCAST(INRCHOPDIM,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
-        CALL MPI_BCAST(INTCHOPDIM,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
-        CALL MPI_BCAST(INXCHOPDIM,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
-        CALL MPI_BCAST(local_scalar%SPACE,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
     
-        ! 2. determine element size
-        IF (ASSOCIATED(local_scalar%E)) NULLIFY(local_scalar%E)
-        local_scalar%INR = 0
-        local_scalar%INTH = 0
-        local_scalar%INX = 0
-
-        SELECT CASE(local_scalar%SPACE)
-        CASE (PFF_SPACE)
-            ARRAYSIZE = INDIMR * CEILING(REAL(INTCHOPDIM)/count_proc(SUBCOMM_2)) * CEILING(REAL(INXCHOPDIM)/count_proc(SUBCOMM_1))
-            ALLOCATE(local_scalar%E(INDIMR,local_size(INTCHOPDIM,SUBCOMM_2),local_size(INXCHOPDIM,SUBCOMM_1)))
-            local_scalar%INTH = local_index(INTCHOPDIM,SUBCOMM_2)
-            local_scalar%INX  = local_index(INXCHOPDIM,SUBCOMM_1)
-
-        CASE (FFF_SPACE)
-            ARRAYSIZE = INRCHOPDIM * CEILING(REAL(INTCHOPDIM)/count_proc(SUBCOMM_2)) * CEILING(REAL(INXCHOPDIM)/count_proc(SUBCOMM_1))
-            ALLOCATE(local_scalar%E(INRCHOPDIM,local_size(INTCHOPDIM,SUBCOMM_2),local_size(INXCHOPDIM,SUBCOMM_1)))
-            local_scalar%INTH = local_index(INTCHOPDIM,SUBCOMM_2)
-            local_scalar%INX  = local_index(INXCHOPDIM,SUBCOMM_1)
-
-        ! PPP_SPACE OR PFP_SPACE:
-        CASE DEFAULT
-            ARRAYSIZE = CEILING(REAL(INDIMR)/count_proc(SUBCOMM_1)) * INDIMTH * CEILING(REAL(INDIMX)/count_proc(SUBCOMM_2))
-            ALLOCATE(local_scalar%E(local_size(INDIMR,SUBCOMM_1),INDIMTH,local_size(INDIMX,SUBCOMM_2)))
-            local_scalar%INR  = local_index(INDIMR,SUBCOMM_1)
-            local_scalar%INX  = local_index(INDIMX,SUBCOMM_2)
-
-        END SELECT
-        LOCAL_ARRAYSIZE = SIZE(local_scalar%E,1)*SIZE(local_scalar%E,2)*SIZE(local_scalar%E,3)
+        READ(7) INDIMR,INDIMTH,INDIMX
+        READ(7) INRCHOPDIM,INTCHOPDIM,INXCHOPDIM
+        READ(7) local_scalar%SPACE,local_scalar%LN
+        READ(7) IZLEN,IELL
+        READ(7) IMINC,IMKLINK
         
-        ! 3. determine Processor index
-        IF (NXCHOPDIM.LT.NTCHOPDIM) THEN
-            INDEX = local_proc(SUBCOMM_1) + local_proc(SUBCOMM_2) * count_proc(SUBCOMM_1)
-        ELSE
-            INDEX = local_proc(SUBCOMM_2) + local_proc(SUBCOMM_1) * count_proc(SUBCOMM_2)
+        CLOSE(7)
+        WRITE(*,*) 'MPIREAD FROM ',TRIM(FN)
+
+        ! Check consistency
+        IF(IZLEN.NE.ZLEN) THEN
+            WRITE(*,*) 'MLOADX: ZLEN INCONSISTENT.'
+            WRITE(*,*) 'PROG =',ZLEN
+            WRITE(*,*) 'FILE =',IZLEN
         ENDIF
 
-        ! 4. determine element size of MPI_DOUBLE_COMPLEX
-        IF (CP8_SIZE.EQ.0) THEN
-            CALL MPI_TYPE_SIZE(MPI_Double_Complex,CP8_SIZE,IERR)
+        IF(IELL.NE.ELL) THEN
+            WRITE(*,*) 'MLOADX: ELL INCONSISTENT.'
+            WRITE(*,*) 'PROG =',ELL
+            WRITE(*,*) 'FILE =',IELL
         ENDIF
-        
-        ! 5. create FILEBLK (derived datatype)
-        call MPI_TYPE_CONTIGUOUS(ARRAYSIZE, MPI_DOUBLE_COMPLEX, FILEBLK, IERR)
-        call MPI_TYPE_COMMIT(FILEBLK, IERR)
-        
-        ! 6. save A%E in each proc
-        CALL MPI_FILE_OPEN(MPI_COMM_IVP, FN, MPI_MODE_RDONLY, MPI_INFO_NULL, MPIFILE, IERR)
-        DISPLACEMENT = INDEX*ARRAYSIZE*CP8_SIZE
-        CALL MPI_FILE_SET_VIEW(MPIFILE, DISPLACEMENT, MPI_DOUBLE_COMPLEX, FILEBLK, &
-                            'NATIVE', MPI_INFO_NULL, IERR)
-        CALL MPI_FILE_READ_ALL(MPIFILE, local_scalar%E, LOCAL_ARRAYSIZE, MPI_DOUBLE_COMPLEX, MPISTATUS, IERR)
-        CALL MPI_FILE_CLOSE(MPIFILE, IERR)
-        CALL MPI_TYPE_FREE(FILEBLK, IERR)
-        
-        local_scalar%IS_ALLOCATED = .TRUE.
 
-    END subroutine MPILOADX
+        IF(MINC.NE.IMINC) THEN
+            WRITE(*,*) 'MLOADX: MINC INCONSISTENT.'
+            WRITE(*,*) 'PROG =',MINC
+            WRITE(*,*) 'FILE =',IMINC
+        ENDIF
+
+        IF(MKLINK.NE.IMKLINK) THEN
+            WRITE(*,*) 'MLOADX: MKLINK INCONSISTENT.'
+            WRITE(*,*) 'PROG =',MKLINK
+            WRITE(*,*) 'FILE =',IMKLINK
+        ENDIF
+        ! ! DEBUG:
+        ! WRITE(*,*) IZLEN
+        ! WRITE(*,*) IELL
+        ! WRITE(*,*) INDIMR,INDIMTH,INDIMX
+        ! WRITE(*,*) local_scalar%SPACE,local_scalar%LN
+    ENDIF
+    CALL MPI_BCAST(INDIMR,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
+    CALL MPI_BCAST(INDIMTH,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
+    CALL MPI_BCAST(INDIMX,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
+    CALL MPI_BCAST(INRCHOPDIM,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
+    CALL MPI_BCAST(INTCHOPDIM,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
+    CALL MPI_BCAST(INXCHOPDIM,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
+    CALL MPI_BCAST(local_scalar%SPACE,1,MPI_INTEGER,0,MPI_COMM_IVP,IERR)
+
+    ! 2. determine element size
+    IF (ASSOCIATED(local_scalar%E)) NULLIFY(local_scalar%E)
+    local_scalar%INR = 0
+    local_scalar%INTH = 0
+    local_scalar%INX = 0
+
+    SELECT CASE(local_scalar%SPACE)
+    CASE (PFF_SPACE)
+        ARRAYSIZE = INDIMR * CEILING(REAL(INTCHOPDIM)/count_proc(SUBCOMM_2)) * CEILING(REAL(INXCHOPDIM)/count_proc(SUBCOMM_1))
+        ALLOCATE(local_scalar%E(INDIMR,local_size(INTCHOPDIM,SUBCOMM_2),local_size(INXCHOPDIM,SUBCOMM_1)))
+        local_scalar%INTH = local_index(INTCHOPDIM,SUBCOMM_2)
+        local_scalar%INX  = local_index(INXCHOPDIM,SUBCOMM_1)
+
+    CASE (FFF_SPACE)
+        ARRAYSIZE = INRCHOPDIM * CEILING(REAL(INTCHOPDIM)/count_proc(SUBCOMM_2)) * CEILING(REAL(INXCHOPDIM)/count_proc(SUBCOMM_1))
+        ALLOCATE(local_scalar%E(INRCHOPDIM,local_size(INTCHOPDIM,SUBCOMM_2),local_size(INXCHOPDIM,SUBCOMM_1)))
+        local_scalar%INTH = local_index(INTCHOPDIM,SUBCOMM_2)
+        local_scalar%INX  = local_index(INXCHOPDIM,SUBCOMM_1)
+
+    ! PPP_SPACE OR PFP_SPACE:
+    CASE DEFAULT
+        ARRAYSIZE = CEILING(REAL(INDIMR)/count_proc(SUBCOMM_1)) * INDIMTH * CEILING(REAL(INDIMX)/count_proc(SUBCOMM_2))
+        ALLOCATE(local_scalar%E(local_size(INDIMR,SUBCOMM_1),INDIMTH,local_size(INDIMX,SUBCOMM_2)))
+        local_scalar%INR  = local_index(INDIMR,SUBCOMM_1)
+        local_scalar%INX  = local_index(INDIMX,SUBCOMM_2)
+
+    END SELECT
+    LOCAL_ARRAYSIZE = SIZE(local_scalar%E,1)*SIZE(local_scalar%E,2)*SIZE(local_scalar%E,3)
+    
+    ! 3. determine Processor index
+    IF (NXCHOPDIM.LT.NTCHOPDIM) THEN
+        INDEX = local_proc(SUBCOMM_1) + local_proc(SUBCOMM_2) * count_proc(SUBCOMM_1)
+    ELSE
+        INDEX = local_proc(SUBCOMM_2) + local_proc(SUBCOMM_1) * count_proc(SUBCOMM_2)
+    ENDIF
+
+    ! 4. determine element size of MPI_DOUBLE_COMPLEX
+    IF (CP8_SIZE.EQ.0) THEN
+        CALL MPI_TYPE_SIZE(MPI_Double_Complex,CP8_SIZE,IERR)
+    ENDIF
+    
+    ! 5. create FILEBLK (derived datatype)
+    call MPI_TYPE_CONTIGUOUS(ARRAYSIZE, MPI_DOUBLE_COMPLEX, FILEBLK, IERR)
+    call MPI_TYPE_COMMIT(FILEBLK, IERR)
+    
+    ! 6. save A%E in each proc
+    CALL MPI_FILE_OPEN(MPI_COMM_IVP, FN, MPI_MODE_RDONLY, MPI_INFO_NULL, MPIFILE, IERR)
+    DISPLACEMENT = INDEX*ARRAYSIZE*CP8_SIZE
+    CALL MPI_FILE_SET_VIEW(MPIFILE, DISPLACEMENT, MPI_DOUBLE_COMPLEX, FILEBLK, &
+                        'NATIVE', MPI_INFO_NULL, IERR)
+    CALL MPI_FILE_READ_ALL(MPIFILE, local_scalar%E, LOCAL_ARRAYSIZE, MPI_DOUBLE_COMPLEX, MPISTATUS, IERR)
+    CALL MPI_FILE_CLOSE(MPIFILE, IERR)
+    CALL MPI_TYPE_FREE(FILEBLK, IERR)
+    
+    local_scalar%IS_ALLOCATED = .TRUE.
+
+END SUBROUTINE MPILOADX
 ! ======================================================================
-    subroutine MPRINT(MESSAGE)
+SUBROUTINE MPRINT(MESSAGE)
 !=======================================================================
 ! [USAGE]:
 ! PAUSE ALL MPI RANK AND PRINT MESSAGE. MUST BE CALLED BY ALL RANKS.
@@ -2347,8 +2375,9 @@ END SUBROUTINE HORFFT
     WRITE(*,'(A)') TRIM(MESSAGE)
     ENDIF
     CALL MPI_BARRIER(MPI_COMM_IVP,IERR)
+
     RETURN
-    END subroutine MPRINT
+END SUBROUTINE MPRINT
 
 ! ======================================================================
 !                           UTILITY FUNCTIONS                           
