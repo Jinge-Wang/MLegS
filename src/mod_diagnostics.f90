@@ -14,15 +14,6 @@ MODULE MOD_DIAGNOSTICS ! LEVEL 5 MODULE
    IMPLICIT NONE
    PRIVATE
 !=======================================================================
-!============================ PARAMETERS ===============================
-!=======================================================================
-   ! 1> DIMENSIONS
-   INTEGER, PUBLIC, ALLOCATABLE, DIMENSION(:,:):: MONITOR_MK          ! EIGENVALUE MONITOR FOR DIFFERENT AZIMUTHAL AND AXIAL WAVENUMBERS
-
-   ! 2> HYPERV
-   REAL(P8),DIMENSION(:),ALLOCATABLE :: HYPER_R, HYPER_T, HYPER_X     ! USED IN HYPSET AND HYPERV3
-
-!=======================================================================
 !======================== PUBLIC DECLARATION ===========================
 !=======================================================================
    ! MONITOR EIGENVALUES
@@ -40,8 +31,6 @@ MODULE MOD_DIAGNOSTICS ! LEVEL 5 MODULE
    PUBLIC:: MAXVELP
    ! NORMALIZATIONS:
    PUBLIC:: RENORMALIZE, REWIPE
-   PUBLIC:: HYPERV3
-   ! PUBLIC:: RICH_RE
 CONTAINS
 !=======================================================================
 !============================ SUBROUTINES ==============================
@@ -969,117 +958,5 @@ FUNCTION MAXVELP(PSIi,CHIi)
    CALL DEALLOCATE( UZi)
 END FUNCTION MAXVELP
 ! ======================================================================
-
-SUBROUTINE HYPSET()
-! ======================================================================
-! CALCULATE THE HYPERVISCOSITY
-! EXP[ - NUP * (FILTER * MODE # / FACTOR)^P * DT]
-! ======================================================================
-  IMPLICIT NONE
-
-  REAL(P8) :: NU_R, NU_T, NU_X
-  INTEGER :: NT_UP, NX_UP
-
-  REAL(P8) :: FACTOR_NU
-  INTEGER :: II, JJ
-  INTEGER :: FACTOR_UP, MONITOR_K(3)
-  
-  REAL(P8) :: FACTOR_R, FACTOR_T, FACTOR_X
-  REAL(P8) :: INDEX_R(NRCHOP), INDEX_T(NTCHOPDIM), INDEX_X(NXCHOPDIM)
-  REAL(P8) :: FILTER_R(NRCHOP), FILTER_T(NTCHOPDIM), FILTER_X(NXCHOPDIM)
-!  REAL(P8) :: HYPER_R(NRCHOP), HYPER_T(NTCHOPDIM), HYPER_X(NXCHOPDIM)
-
-  FACTOR_NU = 2.D0
-
-  FACTOR_R = 1.D0
-  FACTOR_T = 0.8
-  FACTOR_X = 1.D0
-
-  ! IF PERTURBATION/DISTURBANCE SIZE IS 0.1, ITS FACTOR_UP-TH HARMONICS
-  ! WILL GET BELOW MACHINE ROUND-OFF ERROR
-  FACTOR_UP = 24 ! DP
-  NT_UP = MIN(FACTOR_UP*MAX(MAXVAL(MONITOR_MK(1:3,1)),1),NTCHOP-1)
-  DO II = 1,3
-    MONITOR_K(II) = MONITOR_MK(II,2)
-    IF (MONITOR_K(II).GT.NXCHOP) MONITOR_K(II) = MONITOR_K(II) + 1 - 2*NXCHOP
-    MONITOR_K(II) = ABS(MONITOR_K(II))
-  ENDDO
-!   NX_UP = MIN(FACTOR_UP*MAX(MAXVAL(ABS(MONITOR_MK(1:3,2))),1),NXCHOP-1)
-  NX_UP = MIN(FACTOR_UP*MAX(MAXVAL(MONITOR_K),1),NXCHOP-1)
-
-  ! CREATE TANH FILTERS
-  ! R: CENTER AT 1/2*NRCHOP WIDTH NRCHOP/4
-  INDEX_R = (/(II, II=1,NRCHOP)/)
-  FILTER_R = 0.5*(TANH((INDEX_R/REAL(NRCHOP)-1.D0/2.D0)*4.D0)+1.D0)
-  ! T: CENTER AT 2/3*NT_UP WIDTH NT_UP/4
-  INDEX_T = (/(II, II=0,NTCHOPDIM-1)/)
-  FILTER_T = 0.5*(TANH((INDEX_T/REAL(NT_UP)-1.D0/2.D0)*5.D0)+1.D0)
-  ! X: CENTER AT 2/3*NX_UP WIDTH NX_UP/4
-  DO II=1,NXCHOPDIM
-    INDEX_X(II) = II-1
-    IF(II.GT.NXCHOP) THEN
-        INDEX_X(II)=ABS(-(NXCHOPDIM-II+1))
-    ENDIF
-  ENDDO
-  FILTER_X = 0.5*(TANH((INDEX_X/REAL(NX_UP)-1.D0/2.D0)*8.D0)+1.D0)
-
-  ! FORCE THE LAST MODE TO DECAY AT EXP(-1*DT) WHILE ALSO USING TANH TO
-  ! PREVENT CHANGES TO THE INTERESTED MODES
-  NU_R = FACTOR_NU*(FACTOR_R*FILTER_R(NRCHOP))**(-VISC%P) 
-  NU_T = FACTOR_NU*(FACTOR_T*FILTER_T(NTCHOPDIM))**(-VISC%P+2)
-  NU_X = FACTOR_NU*(FACTOR_X*FILTER_X(NXCHOP))**(-VISC%P+2)
-
-  ! CREATE HYPERV VECTORS
-  ALLOCATE(HYPER_R(NRCHOP), HYPER_T(NTCHOPDIM), HYPER_X(NXCHOPDIM))
-  HYPER_R = EXP(-(NU_R*TIM%DT)*(FILTER_R*INDEX_R/NRCHOP)**VISC%P)
-  HYPER_T = EXP(-(NU_T*TIM%DT)*(FILTER_T*INDEX_T/NTCHOP)**(VISC%P-2))
-  HYPER_X = EXP(-(NU_X*TIM%DT)*(FILTER_X*INDEX_X/NXCHOP)**(VISC%P-2))
-
-   ! SAVE HYPER VECTORS
-   IF (MPI_RANK.EQ.0) THEN
-      open(UNIT=888,FILE='hyperv.dat',STATUS='UNKNOWN',ACTION='WRITE')
-      ! write(888,518) NU_R, FILTER_R
-      ! write(888,518) NU_T, FILTER_T
-      ! write(888,518) NU_X, FILTER_X
-      write(888,518) NU_R, HYPER_R
-      write(888,518) NU_T, HYPER_T
-      write(888,518) NU_X, HYPER_X
-      close(888)
-   518 FORMAT((E23.16),*(' ,',E23.16))
-      ! CALL MPI_ABORT(MPI_COMM_WORLD,1,IERR)
-   ENDIF
-
-  RETURN
-END SUBROUTINE
-! ======================================================================
-
-SUBROUTINE HYPERV3(PSI,CHI,B)
-! ======================================================================
-! APPLY HYPERVISCOSITY USING EXPONENTIAL SCALING
-! ONLY ACTIVE WHEN VISC%SW = 3
-! ======================================================================
-  IMPLICIT NONE
-  TYPE(SCALAR):: PSI,CHI,B
-  INTEGER:: MM, KK, NN
-
-   IF (VISC%SW.EQ.3) THEN
-    
-      IF (.NOT.(ALLOCATED(HYPER_R))) CALL HYPSET()
-
-      DO KK = 1,SIZE(PSI%E,3); DO MM = 1,SIZE(PSI%E,2)
-
-         NN = NRCHOPS(MM + PSI%INTH)
-         PSI%E(:NN,MM,KK) = PSI%E(:NN,MM,KK)*HYPER_R(:NN)*HYPER_T(MM+PSI%INTH)*HYPER_X(KK+PSI%INX)
-         CHI%E(:NN,MM,KK) = CHI%E(:NN,MM,KK)*HYPER_R(:NN)*HYPER_T(MM+PSI%INTH)*HYPER_X(KK+PSI%INX)
-           B%E(:NN,MM,KK) =   B%E(:NN,MM,KK)*HYPER_R(:NN)*HYPER_T(MM+PSI%INTH)*HYPER_X(KK+PSI%INX)
-
-      ENDDO; ENDDO
-      
-   ENDIF
-
-  RETURN
-END SUBROUTINE
-! ======================================================================
-
 
 END MODULE MOD_DIAGNOSTICS

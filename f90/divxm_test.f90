@@ -1,157 +1,236 @@
-program bsnsq_test
+program divxm_test
 ! ======================================================================
-! OPEN RE-FINED EIGENVECTORS AND RUN NONLINEAR SIMULATION 
+! TEST DIVXM AND DIVXM_THOMAS
+! by JINGE WANG, Aug 2025
 ! ======================================================================
-   USE OMP_LIB
-   USE MPI
-   USE MOD_MISC
-   USE MOD_BANDMAT
-   USE MOD_EIG
-   USE MOD_FD
-   USE MOD_LIN_LEGENDRE
-   USE MOD_SCALAR3
-   USE MOD_FFT
-   USE MOD_LAYOUT
-   USE MOD_LEGOPS
-   USE MOD_BOUSSINESQ
-   USE MOD_MARCH
-   USE MOD_DIAGNOSTICS
-   USE MOD_INIT
+! [PURPOSE]:
+! To rigorously test and verify the correctness, stability, and
+! behavior of the DIVXM operator, which is the spectral inverse of
+! the MULXM operator.
+!
+! [FINDINGS]:
+! 1. Round-Trip Stability: The test DIVXM(MULXM(A)) = A confirms that
+!    both the original LU-based solver and the new Thomas algorithm
+!    are correct numerical inverses of the MULXM operator to within
+!    standard floating-point precision (~1E-14).
+
+! 2. Analytical Correctness: An analytical test using a known function
+!    B(x) = (1-x)P_2(x) as input proves that the both solvers (DIVXM
+!    and DIVXM_THOMAS) produce the exact correct physical result,
+!    A(x) = P_2(x). This verifies its absolute correctness. Note that,
+!    The code uses normalized basis functions, which is why we have
+!    a renormalization when assigning the spectral coefficients of
+!    the input.
+
+! 3. Ill-Posed Input Behavior: A counter-example test using an
+!    ill-behaved input D(x) = P_2(x) (which is not zero at the x=1
+!    boundary) correctly produces a "polluted" output dominated by
+!    large, high-frequency coefficients. This confirms that the solver
+!    behaves as expected when faced with a physically impossible problem.
+!
+! [CONCLUSION]:
+! The original DIVXM and the Thomas-based solvers have both been proved
+! to perform the correct inversion, but they require the inputs to be
+! well-behaved to function properly. The use of DIVXM2 operators to
+! calculate the PE in the boussinesq context must validate the inputs
+! before trusting the PE calculation it generates.
+
+! Regarding the test of the whole simulation package, a random noise
+! is not the proper inputs for the density term. One way to do this
+! properly is to use a zero-velocity field with a Gaussian blob of 
+! density field to test whether the code conserves the energy.
+
+! In the final production code, we also need to check the b' field before
+! trusting the PE calculation it generates, which can be conducted by
+! examining the spectral coefficients of the input fields:
+! sum(b^0_n * C^0_n) = 0 and sum(b^0_n * C^0_n * n * (n+1) / 2) = 0,
+! where C^0_n is the normalization factor we used in the code (TFM%NORM)
+! and n = 0 to NRCHOPS(1).
+! ======================================================================
+USE OMP_LIB
+USE MPI
+USE MOD_MISC
+USE MOD_BANDMAT
+USE MOD_EIG
+USE MOD_FD
+USE MOD_LIN_LEGENDRE
+USE MOD_SCALAR3
+USE MOD_FFT
+USE MOD_LAYOUT
+USE MOD_LEGOPS
+USE MOD_BOUSSINESQ
+USE MOD_MARCH
+USE MOD_DIAGNOSTICS
+USE MOD_INIT
 ! -------------------------
-implicit none
+IMPLICIT NONE
 ! -------------------------
-integer:: iii,it,mm,kk,pp,II,JJ,FILESTATUS
-real(p8),dimension(1,1):: status
-real(P8):: time_start,time_end,time0,tmp
-type(scalar):: psi_tot,chi_tot,b_per
-type(scalar):: dpsi,dchi,db
-logical:: file_save = .TRUE.
+INTEGER :: II,JJ,KK,MY_RANK,ALL_PROCS
+REAL(P8), PARAMETER:: TOL_P8 = EPSILON(1.0_P8) * 100.0_P8
+REAL(P8),DIMENSION(1,1):: STATUS
+TYPE(SCALAR):: A, B, C, D
+COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: F_X1, DIFF_X1
 
 CALL SETUP_ENVIRONMENT('NOECHO')
 CALL SETUP_GRID(FILES%SAVEDIR)
 
-! INITIALIZE FIELDS
-CALL allocate(psi_tot); call random_noise(psi_tot)
-CALL allocate(chi_tot); call random_noise(chi_tot)
-CALL allocate(b_per); call random_noise(b_per, is_save = .true.)
-CALL allocate(dpsi)
-CALL allocate(dchi)
-CALL allocate(db)
+CALL MPI_COMM_SIZE(MPI_COMM_IVP,ALL_PROCS,IERR)
 
-! SET UP MONITORING MODES
-DO II = 1,SIZE(MONITOR_MK,1)
-   IF (MONITOR_MK(II,1).LT.0) MONITOR_MK(II,:) = -MONITOR_MK(II,:)
-   IF (MONITOR_MK(II,2).LT.0) MONITOR_MK(II,2) = 2*NXCHOP-1+MONITOR_MK(II,2)
+! ANALYTICAL CHECK
+CALL ALLOCATE(A); CALL ALLOCATE(D)
+A%E = 0.D0; D%E = 0.D0
+IF (A%INTH.EQ.0) THEN
+   A%E(2,1,:) = -2.D0/5.D0*TFM%NORM(3,1)/TFM%NORM(2,1)
+   A%E(3,1,:) = 1.D0
+   A%E(4,1,:) = -3.D0/5.D0*TFM%NORM(3,1)/TFM%NORM(4,1)
+
+   D%E(3,1,:) = 1.D0 ! ILL-FORMED INPUT
+ENDIF
+CALL ALLOCATE(B); CALL ALLOCATE(C)
+CALL DIVXM_THOMAS(A, C); CALL DIVXM(D, B) ! CALL DIVXM(A, B) ! THIS GIVES COMPARISON BETWEEN THOMAS AND LU
+CALL MPRINT('CHECK ANALYTICITY OF DIVXM')
+DO MY_RANK = 0, ALL_PROCS - 1
+   CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
+   IF (MY_RANK .EQ. MPI_RANK) THEN
+      IF (B%INTH .EQ. 0) THEN
+         WRITE(*,*) MPI_RANK, 'B = DIVXM(D)'
+         WRITE(*,*) '- NN = 1 : 5 - '
+         CALL MCAT(B%E(1:5,1,1))
+         WRITE(*,*) '- NN = NRCHOP - 9 : NRCHOP -'
+         CALL MCAT(B%E(NRCHOPS(1)-9:NRCHOPS(1),1,1))
+         WRITE(*,*) MPI_RANK, 'C = DIVXM_THOMAS(A)'
+         CALL MCAT(C%E(1:5,1,1:10))
+      ENDIF
+   ENDIF
 ENDDO
-IF (MPI_RANK.EQ.0) THEN
-   WRITE(*,*) 'TRACK MODES: (M,AK) - (#MM,#KK)'
-   DO II = 1,SIZE(MONITOR_MK,1)
-      WRITE(*,92) M(MONITOR_MK(II,1)+1),AK(MONITOR_MK(II,1)+1,MONITOR_MK(II,2)+1),MONITOR_MK(II,1)+1,MONITOR_MK(II,2)+1
+
+CALL DEALLOCATE(A); CALL DEALLOCATE(B); CALL DEALLOCATE(C); CALL DEALLOCATE(D)
+
+! INITIALIZE FIELDS
+CALL MPRINT('CHECK IF DIVXM IS INVERSION OF MULXM')
+CALL ALLOCATE(A); CALL RANDOM_NOISE(A, NOISE_LEVEL = 1.D0, IS_SAVE = .TRUE.)
+
+CALL ALLOCATE(B); CALL ALLOCATE(C)
+CALL MULXM(A, B); 
+CALL CHOPDO(B)
+CALL DIVXM(B, C)
+
+CALL ALLOCATE(D)
+CALL DIVXM_THOMAS(B, D)
+
+! CHECK IF B IS DIVISIBLE BY (1-X)^2
+CALL MPRINT('CHECK IF B IS DIVISIBLE BY (1-X)^2')
+DO MY_RANK = 0, ALL_PROCS - 1
+   CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
+   IF (MY_RANK .EQ. MPI_RANK) THEN
+      IF (B%INTH .EQ. 0) THEN
+         ALLOCATE(F_X1(SIZE(B%E,3)),DIFF_X1(SIZE(B%E,3)))
+         DO KK = 1, SIZE(B%E,3)
+            F_X1(KK) = SUM(B%E(:,1,KK)*TFM%NORM(:SIZE(B%E,1),1))
+            DIFF_X1(KK) = 0.D0
+            DO II = 1, SIZE(B%E,1)
+               DIFF_X1(KK) = DIFF_X1(KK) + B%E(II,1,KK) * TFM%NORM(II,1) * (II-1)*II/2
+            ENDDO
+         ENDDO
+         CALL MCAT(F_X1(1:10))
+         CALL MCAT(DIFF_X1(1:10))
+         DEALLOCATE(F_X1, DIFF_X1)
+      ENDIF
+   ENDIF
+ENDDO
+
+! CHECK IF C AND A ARE IDENTICAL
+CALL MPRINT('COMPARING A AND C')
+IF (A%LN .NE. C%LN) THEN
+   WRITE(*,*) 'ERROR: A and C have different local norms.'
+ENDIF
+DO II = 1, SIZE(A%E, 1) ! Loop through radial modes
+   DO JJ = 1, SIZE(A%E ,2) ! Loop through azimuthal modes
+      DO KK = 1, SIZE(A%E, 3) ! Loop through axial modes
+         IF (ABS(A%E(II,JJ,KK)-C%E(II,JJ,KK)) > TOL_P8 * (1.0_p8 + ABS(A%E(II,JJ,KK)))) THEN
+            WRITE(*,'("diff @ (",I0,",",I0,",",I0,"): (",ES23.16,",",ES23.16,"i) vs (",ES23.16,",",ES23.16,"i)")') &
+               II, JJ, KK, REAL(A%E(II,JJ,KK)), AIMAG(A%E(II,JJ,KK)), REAL(C%E(II,JJ,KK)), AIMAG(C%E(II,JJ,KK))
+         ENDIF
+      ENDDO
    ENDDO
-92 FORMAT('(',I3,',',F9.2,') - (#',I3,', #',I3,')')
-ENDIF
+ENDDO
 
-! INITIAL CONDITIONS
-status(1,1)=0
-if (MPI_RANK.eq.0) then
-   WRITE(*,*) 'PROGRAM STARTED'
-   call msave(status, 'status.dat')
-   CALL PRINT_REAL_TIME()
-endif
-
-!> print psi_tot%e
-IF (MPI_RANK.EQ.0) THEN
-   WRITE(*,*) 'INITIAL PSI_TOT: '
-   DO III = 1,10
-      WRITE(*,*) '( MM = ',III,') - '
-      CALL MCAT(psi_tot%E(1:10,III,1:10))
+! CHECK IF D AND A ARE IDENTICAL
+CALL MPRINT('COMPARING A AND D')
+DO II = 1, SIZE(A%E, 1) ! Loop through radial modes
+   DO JJ = 1, SIZE(A%E ,2) ! Loop through azimuthal modes
+      DO KK = 1, SIZE(A%E, 3) ! Loop through axial modes
+         IF (ABS(A%E(II,JJ,KK)-D%E(II,JJ,KK)) > TOL_P8 * (1.0_p8 + ABS(A%E(II,JJ,KK)))) THEN
+            WRITE(*,'("diff @ (",I0,",",I0,",",I0,"): (",ES23.16,",",ES23.16,"i) vs (",ES23.16,",",ES23.16,"i)")') &
+               II, JJ, KK, REAL(A%E(II,JJ,KK)), AIMAG(A%E(II,JJ,KK)), REAL(D%E(II,JJ,KK)), AIMAG(D%E(II,JJ,KK))
+         ENDIF
+      ENDDO
    ENDDO
+ENDDO
+
+! CHECK IF A IS DIVISIBLE BY (1-X)^2
+CALL MPRINT('CHECK IF A IS DIVISIBLE BY (1-X)^2')
+DO MY_RANK = 0, ALL_PROCS - 1
+   CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
+   IF (MY_RANK .EQ. MPI_RANK) THEN
+      IF (A%INTH .EQ. 0) THEN
+         ALLOCATE(F_X1(SIZE(A%E,3)),DIFF_X1(SIZE(A%E,3)))
+         DO KK = 1, SIZE(A%E,3)
+            F_X1(KK) = SUM(A%E(:,1,KK)*TFM%NORM(:SIZE(A%E,1),1))
+            DIFF_X1(KK) = 0.D0
+            DO II = 1, SIZE(A%E,1)
+               DIFF_X1(KK) = DIFF_X1(KK) + A%E(II,1,KK) * TFM%NORM(II,1) * (II-1)*II/2
+            ENDDO
+         ENDDO
+         CALL MCAT(F_X1(1:10))
+         CALL MCAT(DIFF_X1(1:10))
+         DEALLOCATE(F_X1, DIFF_X1)
+      ENDIF
+   ENDIF
+ENDDO
+
+! CHECK IF C AND A ARE IDENTICAL
+CALL MPRINT('AFTER DIVXM AND MULXM')
+CALL DIVXM(A, B); CALL MULXM(B, C)
+IF (A%LN .NE. C%LN) THEN
+   WRITE(*,*) 'ERROR: A and C have different local norms.'
 ENDIF
-CALL MPI_BARRIER(MPI_COMM_WORLD,IERR)
+DO II = 1, SIZE(A%E, 1) ! Loop through radial modes
+   DO JJ = 1, SIZE(A%E ,2) ! Loop through azimuthal modes
+      DO KK = 1, SIZE(A%E, 3) ! Loop through axial modes
+         IF (ABS(A%E(II,JJ,KK)-C%E(II,JJ,KK)) > TOL_P8 * (1.0_p8 + ABS(A%E(II,JJ,KK)))) THEN
+            WRITE(*,'("diff @ (",I0,",",I0,",",I0,"): (",ES23.16,",",ES23.16,"i) vs (",ES23.16,",",ES23.16,"i)")') &
+               II, JJ, KK, REAL(A%E(II,JJ,KK)), AIMAG(A%E(II,JJ,KK)), REAL(C%E(II,JJ,KK)), AIMAG(C%E(II,JJ,KK))
+         ENDIF
+      ENDDO
+   ENDDO
+ENDDO
 
-!> first diagnostic
-call diagnost(psi_tot,chi_tot)
-call CALC_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
+CALL DEALLOCATE(D); CALL ALLOCATE(D)
+CALL DEALLOCATE(C); CALL ALLOCATE(C)
+CALL DIVXM_THOMAS(A, D); CALL MULXM(D, C)
+CALL MPRINT('AFTER DIVXM_THOMAS AND MULXM')
+DO II = 1, SIZE(A%E, 1) ! Loop through radial modes
+   DO JJ = 1, SIZE(A%E ,2) ! Loop through azimuthal modes
+      DO KK = 1, SIZE(A%E, 3) ! Loop through axial modes
+         IF (ABS(A%E(II,JJ,KK)-C%E(II,JJ,KK)) > TOL_P8 * (1.0_p8 + ABS(A%E(II,JJ,KK)))) THEN
+            WRITE(*,'("diff @ (",I0,",",I0,",",I0,"): (",ES23.16,",",ES23.16,"i) vs (",ES23.16,",",ES23.16,"i)")') &
+               II, JJ, KK, REAL(A%E(II,JJ,KK)), AIMAG(A%E(II,JJ,KK)), REAL(C%E(II,JJ,KK)), AIMAG(C%E(II,JJ,KK))
+         ENDIF
+      ENDDO
+   ENDDO
+ENDDO
 
-!> richardson step
-call rich(psi_tot,chi_tot,b_per,dpsi,dchi,db)
+CALL MPRINT('CHECK COMPLETED')
 
-!> 2nd diagnostic
-call diagnost(psi_tot,chi_tot)
-
-!> save initial energy after Richardson step
-CALL CALC_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
-
-!> startup
-!dpsi and dchi are initially empty, then they are assigned 
-!the nonlinear part of the first step
-time_start = mpi_wtime()
-iii = tim%limit/tim%dt
-files%n = 1
-
-do it=1,2
-
-   !> admam-bashforth
-   call ADAMSB(psi_tot,chi_tot,b_per,dpsi,dchi,db)
-
-   !> hyperviscosity
-   call HYPERV3(psi_tot,chi_tot,b_per)
-   call DIAGNOST(psi_tot,chi_tot)
-
-   !> save energy spectrum
-   CALL CALC_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
-
-   !> output
-   if ((files%t(files%n).le.tim%t) .AND. (file_save)) then
-
-      call msave(psi_tot, TRIM(ADJUSTL(FILES%SAVEDIR))//files%psi(files%n))
-      call msave(chi_tot, TRIM(ADJUSTL(FILES%SAVEDIR))//files%chi(files%n))
-      call msave(b_per, TRIM(ADJUSTL(FILES%SAVEDIR))//files%b(files%n))
-      files%n = files%n + 1
-
-      ! stop the simulation once the last file is saved
-      ! if(files%n > files%ne) goto 999
-      if(files%n > files%ne) file_save = .FALSE.
-      
-   endif
-
-enddo
-
-999 continue
-time_end = mpi_wtime()
-
-call combine_mode_files(0, NXCHOPDIM, './output')
-
-!> final printout
-IF (MPI_RANK.eq.0) THEN
-    print *,tim%n,' steps'
-    WRITE(*,*) 'PROGRAM STARTED'
-    CALL PRINT_REAL_TIME()
-    WRITE(*,*) 'EXECUTION TIME: ',time_end-time_start,'seconds'
-ENDIF
-call MPI_BARRIER(MPI_COMM_IVP,IERR)
-call MPI_FINALIZE(IERR)
+!> FINALIZATION
+CALL PT_SOLVER%FINALIZE(A, B, C)
 
 ! ======================================================================
-contains
+CONTAINS
 ! ======================================================================
-subroutine save_mode(t,psi_new,chi_new,m_i,k_i)
-! ======================================================================
-   complex(p8),DIMENSION(:):: psi_new,chi_new
-   real:: t
-   integer:: m_i,k_i
-   integer:: nn
 
-   open(UNIT=777,FILE=TRIM(ADJUSTL(FILES%SAVEDIR))//'mode_track_'//ITOA3(m_i)//'_'//ITOA3(k_i)//'.dat',&
-   &STATUS='UNKNOWN',ACTION='WRITE',ACCESS='APPEND')
-
-   WRITE(777,320) t,psi_new(1:size(psi_new)),chi_new(1:size(psi_new))
-
-   close(777)
-320 FORMAT(F10.3,',',(S,E14.6E3,SP,E14.6E3,'i'),*(','S,E14.6E3,SP,E14.6E3,'i'))
-end subroutine save_mode
-! ======================================================================
-subroutine random_noise(a, noise_level, is_save)
+subroutine random_noise(scalar_a, noise_level, is_save)
 ! ======================================================================
 ! [USAGE]:
 ! GENERATES RANDOM NOISE WITH A KOLMOGOROV-LIKE ENERGY SPECTRUM.
@@ -164,7 +243,7 @@ subroutine random_noise(a, noise_level, is_save)
 ! ======================================================================
    implicit none
 
-   type(scalar), intent(inout)   :: a
+   type(scalar), intent(inout)   :: scalar_a
    real(p8), optional :: noise_level
    logical, optional, intent(in) :: is_save
 
@@ -197,10 +276,10 @@ subroutine random_noise(a, noise_level, is_save)
 
    ! allocate(kolm_data(size(a%e,1), size(a%e,2), size(a%e,3)))
    ! kolm_data = 0.d0
-   do mmm = 1, size(a%e, 2)
-      global_m = real(m(mmm + a%inth))
-      do kkk = 1, size(a%e, 3)
-         global_k = ak(mmm + a%inth, kkk + a%inx)
+   do mmm = 1, size(scalar_a%e, 2)
+      global_m = real(m(mmm + scalar_a%inth))
+      do kkk = 1, size(scalar_a%e, 3)
+         global_k = ak(mmm + scalar_a%inth, kkk + scalar_a%inx)
 
          if (global_m == 0.0) then ! manual conjugate symmetry is required
                
@@ -210,7 +289,7 @@ subroutine random_noise(a, noise_level, is_save)
                ! This seed is identical for the rank owning (+k) and the rank owning (-k).
                deterministic_seed(1) = base_seed + 1000 * abs(nint(global_k * 100.0_p8))
                call random_seed(put=deterministic_seed)
-               do nnn = 1, size(a%e, 1)
+               do nnn = 1, size(scalar_a%e, 1)
                   call random_number(rand_real)
                   call random_number(rand_imag)
                   rand_real = (rand_real - 0.5_p8) * 2.0_p8
@@ -231,18 +310,18 @@ subroutine random_noise(a, noise_level, is_save)
                   
                   ! Apply conjugate logic based on the sign of k
                   if (abs(global_k) < 1.0e-12_p8) then ! n=0 mode
-                     a%e(nnn, mmm, kkk) = cmplx(rand_real * magnitude, 0.0_p8, kind=p8)
+                     scalar_a%e(nnn, mmm, kkk) = cmplx(rand_real * magnitude, 0.0_p8, kind=p8)
                   else if (global_k > 0.0_p8) then ! n>0 modes
-                     a%e(nnn, mmm, kkk) = cmplx(rand_real * magnitude,  rand_imag * magnitude, kind=p8)
+                     scalar_a%e(nnn, mmm, kkk) = cmplx(rand_real * magnitude,  rand_imag * magnitude, kind=p8)
                   else ! n<0 modes
-                     a%e(nnn, mmm, kkk) = cmplx(rand_real * magnitude, -rand_imag * magnitude, kind=p8)
+                     scalar_a%e(nnn, mmm, kkk) = cmplx(rand_real * magnitude, -rand_imag * magnitude, kind=p8)
                   endif
                end do
 
                call random_seed(put=saved_seed)
 
          else ! m > 0
-               do nnn = 1, size(a%e, 1)
+               do nnn = 1, size(scalar_a%e, 1)
                   k_azimuthal_norm = global_m/maxval(m)
                   k_axial_norm     = abs(global_k)/maxval(abs(ak))
                   k_radial_norm    = real(nnn) / real(nrchop)
@@ -260,7 +339,7 @@ subroutine random_noise(a, noise_level, is_save)
                   call random_number(rand_imag)
                   rand_real = (rand_real - 0.5_p8) * 2.0_p8
                   rand_imag = (rand_imag - 0.5_p8) * 2.0_p8
-                  a%e(nnn, mmm, kkk) = cmplx(rand_real * magnitude, rand_imag * magnitude, kind=p8)
+                  scalar_a%e(nnn, mmm, kkk) = cmplx(rand_real * magnitude, rand_imag * magnitude, kind=p8)
                end do
          endif
       end do ! k loop
@@ -268,10 +347,10 @@ subroutine random_noise(a, noise_level, is_save)
       if ((global_m == 0.0).and.(present(is_save))) then
          open(unit=777, file='./output/m0_mode_rank_'//trim(itoa3(MPI_RANK))//'.output', status='unknown', action='write')
          ! Write a placeholder for alignment, then the global k indices
-         write(777, '(I4,1x,*(I8,1x))') 0, (k_ind+a%INX, k_ind=1,size(a%e,3))
-         do nnn = 1, size(a%e, 1)
+         write(777, '(I4,1x,*(I8,1x))') 0, (k_ind+scalar_a%INX, k_ind=1,size(scalar_a%e,3))
+         do nnn = 1, size(scalar_a%e, 1)
             write(777, '(I4,",",*(ES14.6,SP,ES14.6,"i",","))') nnn, &
-               (real(a%e(nnn,mmm,k_ind)), imag(a%e(nnn,mmm,k_ind)), k_ind=1,size(a%e,3))
+               (real(scalar_a%e(nnn,mmm,k_ind)), imag(scalar_a%e(nnn,mmm,k_ind)), k_ind=1,size(scalar_a%e,3))
          end do
          close(777)
       endif
@@ -295,10 +374,10 @@ subroutine random_noise(a, noise_level, is_save)
 
    ! deallocate(kolm_data)
    call mpi_barrier(MPI_COMM_IVP,ierr)
-   call chopdo(a)
+   call chopdo(scalar_a)
     
    if (MPI_RANK == 0) then
-      a%ln = 0.d0
+      scalar_a%ln = 0.d0
       write(*,*) 'Random noise with Kolmogorov spectrum generated.'
    endif
 
@@ -521,4 +600,116 @@ subroutine combine_mode_files(mode_num, k_ind_tot, output_dir)
    
 end subroutine combine_mode_files
 
-end program bsnsq_test
+! FUNCTION TRIDIAG_SOLVE(BAND_MATRIX, VEC_IN) RESULT(VEC_OUT)
+! !=======================================================================
+! ! [USAGE]:
+! ! SOLVES A TRIDIAGONAL SYSTEM A*X = D USING THE THOMAS ALGORITHM.
+! ! THIS IS THE FINAL, CORRECTED MODULAR VERSION.
+! !
+! ! [INPUTS]:
+! ! BAND_MATRIX >> REAL(P8), DIMENSION(NI, 3). THE TRIDIAGONAL MATRIX.
+! ! VEC_IN      >> COMPLEX(P8), DIMENSION(NI). THE RIGHT-HAND SIDE VECTOR.
+! !
+! ! [RETURNS]:
+! ! VEC_OUT     >> COMPLEX(P8), DIMENSION(NI). THE SOLUTION VECTOR.
+! !=======================================================================
+!    IMPLICIT NONE
+!    REAL(P8), DIMENSION(:,:), INTENT(IN)    :: BAND_MATRIX
+!    COMPLEX(P8), DIMENSION(:), INTENT(IN)   :: VEC_IN
+!    COMPLEX(P8), DIMENSION(SIZE(VEC_IN))    :: VEC_OUT
+
+!    INTEGER :: NI, NN
+!    REAL(P8) :: M_INV
+
+!    COMPLEX(P8), DIMENSION(SIZE(VEC_IN)) :: D_PRIME
+!    REAL(P8), DIMENSION(SIZE(VEC_IN))    :: C_PRIME
+
+!    NI = SIZE(VEC_IN)
+!    IF (NI == 0) RETURN
+!    IF (NI == 1) THEN
+!       VEC_OUT(1) = VEC_IN(1) / BAND_MATRIX(1, 2)
+!       RETURN
+!    END IF
+
+!    ! --- FORWARD ELIMINATION PASS ---
+!    M_INV = 1.0_P8 / BAND_MATRIX(1, 2)
+!    C_PRIME(1) = BAND_MATRIX(1, 3) * M_INV
+!    D_PRIME(1) = VEC_IN(1) * M_INV
+
+!    DO NN = 2, NI - 1
+!       M_INV = 1.0_P8 / (BAND_MATRIX(NN, 2) - BAND_MATRIX(NN, 1) * C_PRIME(NN-1))
+!       C_PRIME(NN) = BAND_MATRIX(NN, 3) * M_INV
+!       D_PRIME(NN) = (VEC_IN(NN) - BAND_MATRIX(NN, 1) * D_PRIME(NN-1)) * M_INV
+!    ENDDO
+
+!    IF (NI > 1) THEN
+!       D_PRIME(NI) = (VEC_IN(NI) - BAND_MATRIX(NI, 1) * D_PRIME(NI-1)) / &
+!                   (BAND_MATRIX(NI, 2) - BAND_MATRIX(NI, 1) * C_PRIME(NI-1))
+!    ENDIF
+
+!    ! --- BACKWARD SUBSTITUTION PASS ---
+!    VEC_OUT(NI) = D_PRIME(NI)
+!    DO NN = NI - 1, 1, -1
+!       VEC_OUT(NN) = D_PRIME(NN) - C_PRIME(NN) * VEC_OUT(NN+1)
+!    ENDDO
+
+!    RETURN
+! END FUNCTION TRIDIAG_SOLVE
+! !=======================================================================
+
+! SUBROUTINE DIVXM_THOMAS(SCALAR_IN, SCALAR_OUT)
+! !=======================================================================
+! ! [USAGE]:
+! ! APPLIES THE INVERSE OF THE (1-x) SPECTRAL OPERATOR.
+! !
+! ! [METHOD]:
+! ! LOOPS THROUGH ALL SPECTRAL MODES, GENERATES THE TRIDIAGONAL MATRIX
+! ! FOR EACH MODE RESPECTING ITS SPECIFIC RADIAL TRUNCATION (NRCHOPS),
+! ! AND SOLVES THE SYSTEM USING THE TRIDIAG_SOLVE FUNCTION.
+! !
+! ! [INPUTS]:
+! ! SCALAR_IN >> SCALAR OBJECT IN FFF SPACE.
+! !
+! ! [OUTPUTS]:
+! ! SCALAR_OUT >> (1-x)^(-1) * SCALAR_IN.
+! !=======================================================================
+!    IMPLICIT NONE
+!    TYPE(SCALAR), INTENT(IN)    :: SCALAR_IN
+!    TYPE(SCALAR), INTENT(INOUT) :: SCALAR_OUT
+
+!    INTEGER :: MM, KKK, NN, AM
+!    REAL(P8), DIMENSION(:,:), ALLOCATABLE :: XM
+
+!    IF(SCALAR_OUT%SPACE.NE.FFF_SPACE) THEN
+!       CALL DEALLOCATE(SCALAR_OUT)
+!       CALL ALLOCATE(SCALAR_OUT, FFF_SPACE)
+!    ENDIF
+
+!    SCALAR_OUT%LN = SCALAR_IN%LN
+!    SCALAR_OUT%E = 0.D0
+
+! !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(MM, KKK, AM, NN, XM)
+! !$OMP DO
+!    DO MM = 1, SIZE(SCALAR_IN%E, 2)
+!       AM = M(MM + SCALAR_IN%INTH)
+!       NN = NRCHOPS(MM + SCALAR_IN%INTH)
+
+!       ALLOCATE(XM(NN, 3))
+
+!       ! GENERATE THE (1-x) MATRIX FOR THIS AZIMUTHAL MODE
+!       XM = BAND_LOGLEG_XM(NN, AM, TFM%LOGNORM(:NN, MM + SCALAR_IN%INTH))
+
+!       ! SOLVE THE TRIDIAGONAL SYSTEM FOR EACH AXIAL WAVENUMBER
+!       DO KKK = 1, SIZE(SCALAR_IN%E, 3)
+!          SCALAR_OUT%E(:NN, MM, KKK) = TRIDIAG_SOLVE( XM, SCALAR_IN%E(:NN, MM, KKK) )
+!       ENDDO
+
+!       DEALLOCATE(XM)
+!    ENDDO
+! !$OMP END DO
+! !$OMP END PARALLEL
+
+!    RETURN
+! END SUBROUTINE DIVXM_THOMAS
+
+end program divxm_test

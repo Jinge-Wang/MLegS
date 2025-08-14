@@ -27,6 +27,7 @@ MODULE MOD_BANDMAT ! LEVEL 1 MODULE
       END INTERFACE
 
       INTERFACE SOLVEB
+        MODULE PROCEDURE TRIBKSB1
         MODULE PROCEDURE LUBKSBB
         MODULE PROCEDURE LUBKSBBR
         MODULE PROCEDURE LUBKSB1
@@ -1415,6 +1416,63 @@ CONTAINS
       RETURN
       END FUNCTION MTRXC
 !=======================================================================
+FUNCTION TRIBKSB1(AMAT, A) RESULT(B)
+!=======================================================================
+! [USAGE]:
+! SOLVES A TRIDIAGONAL SYSTEM AMAT*B = A USING THE THOMAS ALGORITHM.
+! THIS IS THE FINAL, CORRECTED MODULAR VERSION.
+!
+! [INPUTS]:
+! AMAT >> REAL(P8), DIMENSION(NI, 3). THE TRIDIAGONAL MATRIX.
+! A    >> COMPLEX(P8), DIMENSION(NI). THE RIGHT-HAND SIDE VECTOR.
+!
+! [RETURNS]:
+! B    >> COMPLEX(P8), DIMENSION(NI). THE SOLUTION VECTOR.
+!=======================================================================
+   IMPLICIT NONE
+   REAL(P8), DIMENSION(:,:), INTENT(IN)    :: AMAT
+   COMPLEX(P8), DIMENSION(:), INTENT(IN)   :: A
+   COMPLEX(P8), DIMENSION(SIZE(A))    :: B
+
+   INTEGER :: NI, NN
+   REAL(P8) :: M_INV
+
+   COMPLEX(P8), DIMENSION(SIZE(A)) :: D_PRIME
+   REAL(P8), DIMENSION(SIZE(A))    :: C_PRIME
+
+   NI = SIZE(A)
+   IF (NI == 0) RETURN
+   IF (NI == 1) THEN
+      B(1) = A(1) / AMAT(1, 2)
+      RETURN
+   END IF
+
+   ! --- FORWARD ELIMINATION PASS ---
+   M_INV = 1.0_P8 / AMAT(1, 2)
+   C_PRIME(1) = AMAT(1, 3) * M_INV
+   D_PRIME(1) = A(1) * M_INV
+
+   DO NN = 2, NI - 1
+      M_INV = 1.0_P8 / (AMAT(NN, 2) - AMAT(NN, 1) * C_PRIME(NN-1))
+      C_PRIME(NN) = AMAT(NN, 3) * M_INV
+      D_PRIME(NN) = (A(NN) - AMAT(NN, 1) * D_PRIME(NN-1)) * M_INV
+   ENDDO
+
+   IF (NI > 1) THEN
+      D_PRIME(NI) = (A(NI) - AMAT(NI, 1) * D_PRIME(NI-1)) / &
+                  (AMAT(NI, 2) - AMAT(NI, 1) * C_PRIME(NI-1))
+   ENDIF
+
+   ! --- BACKWARD SUBSTITUTION PASS ---
+   B(NI) = D_PRIME(NI)
+   DO NN = NI - 1, 1, -1
+      B(NN) = D_PRIME(NN) - C_PRIME(NN) * B(NN+1)
+   ENDDO
+
+   RETURN
+END FUNCTION TRIBKSB1
+!=======================================================================
+
 END MODULE MOD_BANDMAT
 !=======================================================================
 !                      ORIGINAL COMMENTS (BY TATSU)

@@ -1065,7 +1065,7 @@ WRITE(FUNIT,'(A)') 'END'
 ! Close the file
 CLOSE(FUNIT)
 
-WRITE(*,'(A)') 'Parameter file saved as: '//TRIM(FILENAME)
+WRITE(*,*) 'Parameter file saved as: '//TRIM(FILENAME)
 
 RETURN
 END SUBROUTINE SAVEDIN
