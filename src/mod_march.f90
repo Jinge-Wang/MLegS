@@ -1,7 +1,7 @@
 MODULE MOD_MARCH ! LEVEL 4 MODULE
   USE omp_lib
   USE MPI
-  USE MOD_MISC, ONLY : P4,P8,PI,IU,SPY,MSAVE,MLOAD,CFL               ! LEVEL 0
+  USE MOD_MISC, ONLY : P4,P8,PI,IU,SPY,MSAVE,MCAT,CFL               ! LEVEL 0
   USE MOD_EIG                                                        ! LEVEL 1
   USE MOD_SCALAR3                                                    ! LEVEL 2
   USE MOD_FFT                                                        ! LEVEL 2.5
@@ -12,6 +12,31 @@ MODULE MOD_MARCH ! LEVEL 4 MODULE
 !=======================================================================
 !============================ PARAMETERS ===============================
 !=======================================================================
+  !0> NUMERICAL SOLVER
+  PUBLIC:: SOLVER_T
+  TYPE SOLVER_T
+    ! --- HISTORY VARIABLES ---
+    ! For AB-CN:
+    TYPE(SCALAR):: N_PSI, N_CHI
+    ! For ETD-CN:
+    TYPE(SCALAR):: R_N_R, R_N_P, N_Z
+    ! Shared:
+    TYPE(SCALAR):: N_B
+
+    ! --- ETD2AB OPERATORS ---
+    COMPLEX(P8), ALLOCATABLE, DIMENSION(:,:) :: ETD_E, ETD_NL
+
+    ! --- OUTPUT CONTROL ---
+    LOGICAL:: SAVE_VARIABLE = .TRUE.
+    REAL(P8):: TIME_START = 0.0D0
+
+    CONTAINS
+      PROCEDURE, PASS(THIS):: INITIALIZE
+      PROCEDURE, PASS(THIS):: TIME_STEPPING
+      PROCEDURE, PASS(THIS):: FINALIZE
+  ENDTYPE SOLVER_T
+  TYPE(SOLVER_T),PUBLIC:: PT_SOLVER
+
   !1> TIME ADVANCEMENT INFORMATION
   PUBLIC:: TIMEDATA
   TYPE TIMEDATA
@@ -90,11 +115,13 @@ MODULE MOD_MARCH ! LEVEL 4 MODULE
 
   REAL(P8):: SUMMO,SUMKO,NUPB                                        ! USED IN THE HYPADJ SUBROUTINE
   INTEGER:: FIRST=0                                                  ! USED IN THE HYPADJ SUBROUTINE
+  REAL(P8),DIMENSION(:),ALLOCATABLE :: HYPER_R, HYPER_T, HYPER_X     ! USED IN HYPSET AND HYPERV3
+  INTEGER, PUBLIC, ALLOCATABLE, DIMENSION(:,:):: MONITOR_MK          ! EIGENVALUE MONITOR FOR DIFFERENT AZIMUTHAL AND AXIAL WAVENUMBERS
 !=======================================================================
 !======================== PUBLIC DECLARATION ===========================
 !=======================================================================
   ! TIME ADVANCEMENT SCHEMES (ADAMS-BASHFORTH, RICHARDSON, EULER)
-  PUBLIC:: ADAMSB, RICH, EULER, KRYLOV2, KRYLOV_INIT
+  PUBLIC:: ADAMSB, RICH, EULER, ETD1FE, ETD_INIT
   ! VISCOSITY & HYPERVISCOSITY IMPOSITION
   PUBLIC:: VISC1,VISC2,HYPERV
   ! DIAGNOSIS OF FIELD
@@ -111,6 +138,620 @@ MODULE MOD_MARCH ! LEVEL 4 MODULE
   PUBLIC:: HYPADJ
   
 CONTAINS
+!=======================================================================
+!======================= SOLVER TYPE PROCEDURES ========================
+!=======================================================================
+  SUBROUTINE INITIALIZE(THIS, PSI, CHI, B)
+!=======================================================================
+! [USAGE]: 
+! CONFIGURE THE SOLVER FOR TIME STEPPING AND ALLOCATE HISTORY VARIABLES
+!=======================================================================
+  IMPLICIT NONE
+  CLASS(SOLVER_T), INTENT(INOUT) :: THIS
+  TYPE(SCALAR), INTENT(INOUT)   :: PSI, CHI, B
+
+  CALL MPRINT('SOLVER: Initializing and performing startup step...')
+  THIS%TIME_START = MPI_WTIME()
+
+  IF (BSNSQ%ADAMS) THEN
+    CALL MPRINT('SOLVER: bsnsq%adams=T. Configuring AB2-CN scheme.')
+    CALL ALLOCATE(THIS%N_B, FFF_SPACE)
+    CALL ALLOCATE(THIS%N_PSI, FFF_SPACE)
+    CALL ALLOCATE(THIS%N_CHI, FFF_SPACE)
+    CALL RICH_AB_KERNEL(THIS, PSI, CHI, B)
+  ELSE
+    CALL MPRINT('SOLVER: bsnsq%adAMS=F. Configuring ETD2-CN scheme.')
+    ALLOCATE(THIS%ETD_E(4,4), THIS%ETD_NL(4,4))
+    CALL ETD_INIT(THIS%ETD_E, THIS%ETD_NL, TIM%DT)
+    CALL ALLOCATE(THIS%N_B, PPP_SPACE)
+    CALL ALLOCATE(THIS%R_N_R, PPP_SPACE)
+    CALL ALLOCATE(THIS%R_N_P, PPP_SPACE)
+    CALL ALLOCATE(THIS%N_Z, PPP_SPACE)
+    CALL RICH_ETD_KERNEL(THIS, PSI, CHI, B)
+  ENDIF
+
+  CALL MPRINT('SOLVER: Initialization and Richardson startup complete.')
+
+  RETURN
+  END SUBROUTINE INITIALIZE
+!=======================================================================
+
+  SUBROUTINE TIME_STEPPING(THIS, PSI, CHI, B)
+!=======================================================================
+! [USAGE]: 
+! PERFORM A SINGLE TIME-STEPPING
+!=======================================================================
+  IMPLICIT NONE
+  CLASS(SOLVER_T), INTENT(INOUT) :: THIS
+  TYPE(SCALAR), INTENT(INOUT)   :: PSI, CHI, B
+
+  IF (BSNSQ%ADAMS) THEN
+    CALL AB2CN_KERNEL(THIS, PSI, CHI, B)
+  ELSE
+    CALL ETD2CN(THIS, PSI, CHI, B)
+  ENDIF
+
+  CALL HYPERV3(PSI, CHI, B) ! CUSTOMIZED HYPERV (SW > 2)
+  CALL DIAGNOST(PSI, CHI)
+  CALL CALC_ENERGY(PSI, CHI, B, TIM%T, FILES%SAVEDIR)
+
+  IF ((FILES%T(FILES%N) .LE. TIM%T) .AND. (THIS%SAVE_VARIABLE)) THEN
+    CALL MSAVE(PSI, TRIM(ADJUSTL(FILES%SAVEDIR)) // FILES%PSI(FILES%N))
+    CALL MSAVE(CHI, TRIM(ADJUSTL(FILES%SAVEDIR)) // FILES%CHI(FILES%N))
+    CALL MSAVE(B, TRIM(ADJUSTL(FILES%SAVEDIR)) // FILES%B(FILES%N))
+    FILES%N = FILES%N + 1
+
+    ! Stop the simulation once the last file is saved
+    ! if(files%n > files%ne) goto 999
+    IF (FILES%N > FILES%NE) THIS%SAVE_VARIABLE = .FALSE.
+  ENDIF
+
+  RETURN
+  END SUBROUTINE TIME_STEPPING
+!=======================================================================
+  SUBROUTINE FINALIZE(THIS, PSI, CHI, B)
+!=======================================================================
+  USE MOD_MISC, ONLY: PRINT_REAL_TIME
+  IMPLICIT NONE
+  CLASS(SOLVER_T), INTENT(INOUT) :: THIS
+  TYPE(SCALAR), INTENT(INOUT), OPTIONAL :: PSI, CHI, B
+  REAL(P8):: TIME_END
+
+  CALL MPRINT('SOLVER: Deallocating ...')
+
+  ! Free allocated memory
+  IF (ALLOCATED(THIS%ETD_E)) DEALLOCATE(THIS%ETD_E,THIS%ETD_NL)
+  CALL DEALLOCATE(THIS%N_B)
+  IF (BSNSQ%ADAMS) THEN
+    CALL DEALLOCATE(THIS%N_PSI)
+    CALL DEALLOCATE(THIS%N_CHI)
+  ELSE
+    CALL DEALLOCATE(THIS%R_N_R)
+    CALL DEALLOCATE(THIS%R_N_P)
+    CALL DEALLOCATE(THIS%N_Z  )
+  ENDIF
+
+  IF (PRESENT(PSI)) CALL DEALLOCATE(PSI)
+  IF (PRESENT(CHI)) CALL DEALLOCATE(CHI)
+  IF (PRESENT(B)) CALL DEALLOCATE(B)
+
+  CALL MPRINT('SOLVER: ')
+  TIME_END = MPI_WTIME()
+  IF (MPI_RANK.eq.0) THEN
+      WRITE(*,*) 'Finalized after ', TIM%N, 'steps'
+      WRITE(*,*) 'Time-stepping total time: ', TIME_END-THIS%TIME_START,'seconds'
+      CALL PRINT_REAL_TIME()
+  ENDIF
+  call MPI_BARRIER(MPI_COMM_IVP,IERR)
+  call MPI_FINALIZE(IERR)
+
+  RETURN
+  END SUBROUTINE FINALIZE
+!=======================================================================
+!======================= TIME-STEPPING KERNELS =========================
+!=======================================================================
+  SUBROUTINE AB2CN_KERNEL(THIS, PSI, CHI, B)
+!=======================================================================
+  IMPLICIT NONE
+  TYPE(SOLVER_T), INTENT(INOUT) :: THIS
+  TYPE(SCALAR), INTENT(INOUT)   :: PSI, CHI, B
+
+  TYPE(SCALAR):: PSIN,CHIN,BN
+  TYPE(SCALAR):: PSI0,CHI0,B0
+  REAL(P8):: DT
+
+  DT = TIM%DT
+  TIM%T = TIM%T + DT
+  TIM%N = TIM%N + 1
+  ADV%X = ADV%X + ADV%UX*DT
+  ADV%Y = ADV%Y + ADV%UY*DT
+
+  CALL ALLOCATE( PSIN )
+  CALL ALLOCATE( CHIN )
+  CALL ALLOCATE(   BN )
+
+  CALL BOUSSINESQ_FULL(PSI,CHI,B,PSIN,CHIN,BN)
+
+  CALL ALLOCATE( PSI0 )
+  CALL ALLOCATE( CHI0 )
+  CALL ALLOCATE(   B0 )
+
+  PSI0 = PSI
+  CHI0 = CHI
+  B0 = B
+
+  PSI%E = PSI%E +DT*(1.5D0*PSIN%E -0.5D0*THIS%N_PSI%E)
+  CHI%E = CHI%E +DT*(1.5D0*CHIN%E -0.5D0*THIS%N_CHI%E)
+  B%E   =   B%E +DT*(1.5D0*  BN%E -0.5D0*  THIS%N_B%E)
+
+  THIS%N_PSI = PSIN
+  THIS%N_CHI = CHIN
+  THIS%N_B   = BN
+
+  CALL DEALLOCATE( PSIN )
+  CALL DEALLOCATE( CHIN )
+  CALL DEALLOCATE(   BN )
+
+  CALL VISC2(PSI,CHI,B,PSI0,CHI0,B0)
+  CALL HYPERV(PSI,CHI,B,DT)
+
+  CALL DEALLOCATE( PSI0 )
+  CALL DEALLOCATE( CHI0 )
+  CALL DEALLOCATE(   B0 )
+
+  RETURN
+  END SUBROUTINE AB2CN_KERNEL
+!=======================================================================
+
+  SUBROUTINE RICH_AB_KERNEL(THIS, PSI, CHI, B)
+!=======================================================================
+  IMPLICIT NONE
+  TYPE(SOLVER_T), INTENT(INOUT) :: THIS
+  TYPE(SCALAR), INTENT(INOUT)   :: PSI, CHI, B
+
+  TYPE(SCALAR):: PSI2,CHI2,B2
+  TYPE(SCALAR):: P_N,C_N,B_N
+  REAL(P8):: DT, HDT
+
+  DT = TIM%DT
+  HDT = DT*0.5D0
+  TIM%T = TIM%T + DT
+  TIM%N = TIM%N + 1
+  ADV%X = ADV%X + ADV%UX*DT
+  ADV%Y = ADV%Y + ADV%UY*DT
+
+  CALL ALLOCATE(PSI2)
+  CALL ALLOCATE(CHI2)
+  CALL ALLOCATE(  B2)
+
+  ! FIRST HALF-STEP
+  CALL BOUSSINESQ_FULL(PSI,CHI,B,THIS%N_PSI,THIS%N_CHI,THIS%N_B)
+
+  PSI2%E =PSI%E + (HDT*THIS%N_PSI%E)
+  CHI2%E =CHI%E + (HDT*THIS%N_CHI%E)
+  B2%E =  B%E + (HDT*THIS%N_B%E)
+  CALL VISC1(PSI2,CHI2,B2,HDT)
+  CALL HYPERV(PSI2,CHI2,B2,HDT)
+
+  CALL ALLOCATE( P_N )
+  CALL ALLOCATE( C_N )
+  CALL ALLOCATE( B_N )
+
+  ! SECOND HALF-STEP
+  CALL BOUSSINESQ_FULL(PSI2,CHI2,B2,P_N,C_N,B_N)
+
+  PSI2%E =PSI2%E + (HDT*P_N%E)
+  CHI2%E =CHI2%E + (HDT*C_N%E)
+    B2%E =  B2%E + (HDT*B_N%E)
+  CALL VISC1(PSI2,CHI2,B2,HDT)
+  CALL HYPERV(PSI2,CHI2,B2,HDT)
+
+  ! FULL STEP
+  PSI%E =PSI%E +(DT)*THIS%N_PSI%E
+  CHI%E =CHI%E +(DT)*THIS%N_CHI%E
+  B%E =  B%E +(DT)*THIS%N_B%E
+
+  CALL VISC1(PSI,CHI,B,DT)
+  CALL HYPERV(PSI,CHI,B,DT)
+
+  PSI%E =(2.0D0*PSI2%E)-PSI%E
+  CHI%E =(2.0D0*CHI2%E)-CHI%E
+    B%E =(2.0D0*  B2%E)-  B%E
+
+  CALL DEALLOCATE( PSI2 )
+  CALL DEALLOCATE( CHI2 )
+  CALL DEALLOCATE(   B2 )
+  CALL DEALLOCATE( P_N )
+  CALL DEALLOCATE( C_N )
+  CALL DEALLOCATE( B_N )
+
+  RETURN
+  END SUBROUTINE RICH_AB_KERNEL
+!=======================================================================
+
+  SUBROUTINE ETD2CN(THIS, PSI, CHI, B)
+!=======================================================================
+  IMPLICIT NONE
+  TYPE(SOLVER_T), INTENT(INOUT) :: THIS
+  TYPE(SCALAR), INTENT(INOUT)   :: PSI, CHI, B
+
+  REAL(P8):: DT
+  TYPE(SCALAR):: RURN, RUPN, UZN, BN
+  TYPE(SCALAR):: RORN, ROPN, OZN
+  TYPE(SCALAR):: PSI0, CHI0, B0
+  TYPE(SCALAR):: W
+
+  DT = TIM%DT
+  TIM%T = TIM%T + DT
+  TIM%N = TIM%N + 1
+  ADV%X = ADV%X + ADV%UX*DT
+  ADV%Y = ADV%Y + ADV%UY*DT
+
+  CALL ALLOCATE(RURN); CALL ALLOCATE(RUPN); CALL ALLOCATE(UZN)
+  CALL ALLOCATE(RORN); CALL ALLOCATE(ROPN); CALL ALLOCATE(OZN)
+
+  CALL CHOPSET(3)
+  CALL PC2VEL(PSI,CHI,RURN,RUPN,UZN)
+  CALL PC2VOR(PSI,CHI,RORN,ROPN,OZN)
+  CALL CHOPSET(-3)
+
+  ! CALCULATE NONLINEAR TERMS: U X W AND -(U.GRAD)B' 
+  ! NOTES:
+  ! - B REMAIN IN FFF SPACE
+  ! - RURN, RUPN, UZN ARE RETURNED IN PPP SPACE
+  !   AND UPDATED WITH FREESTREAM ADJUSTMENT
+  ! - RORN, ROPN, OZN ARE RETURNED IN PPP SPACE
+  CALL BOUSSINESQ_NONLIN(B,RURN,RUPN,UZN,BN,RORN,ROPN,OZN)
+
+  CALL ALLOCATE(B0)
+  B0 = B ! FFF SPACE
+
+  ! APPLY ETD UPDATE TO RURN, RUPN, UZN, B
+  ! TODO: CHECK HOW FREESTREAM ADJUSTMENT WILL AFFECT RESULTS
+  CALL ETD2_SUB(THIS, B, RURN, RUPN, UZN, BN, RORN, ROPN, OZN)
+  THIS%N_B = BN
+  THIS%R_N_R = RORN
+  THIS%R_N_P = ROPN
+  THIS%N_Z = OZN
+  CALL DEALLOCATE(BN)
+  CALL DEALLOCATE(RORN)
+  CALL DEALLOCATE(ROPN)
+  CALL DEALLOCATE(OZN)
+
+  CALL ALLOCATE(PSI0)
+  CALL ALLOCATE(CHI0)
+  PSI0 = PSI
+  CHI0 = CHI
+
+  CALL ALLOCATE(W)
+  CALL PROJECT(RURN, RUPN, UZN, PSI, W)
+  CALL IDEL2(W, CHI)
+  CALL TOFF(B)
+
+  CALL DEALLOCATE(W)
+  CALL DEALLOCATE(RURN)
+  CALL DEALLOCATE(RUPN)
+  CALL DEALLOCATE(UZN)
+
+  CALL VISC2(PSI,CHI,B,PSI0,CHI0,B0)
+  CALL HYPERV(PSI,CHI,B,DT)
+
+  CALL DEALLOCATE(PSI0)
+  CALL DEALLOCATE(CHI0)
+  CALL DEALLOCATE(B0)
+
+  RETURN
+  END SUBROUTINE ETD2CN
+!=======================================================================
+
+  SUBROUTINE ETD1FE(PSI, CHI, B, ETD_E, ETD_NL, SOLVER)
+!=======================================================================
+! [USAGE]:
+! Performs a first-order "ETD1-Forward Euler" explicit predictor step.
+! This takes the state U_n and calculates the intermediate state U_{n+1/2}
+! by solving for the wave and advection physics. The subsequent implicit
+! corrector step for diffusion is handled separately.
+!
+! [PARAMETERS]:
+! ETD_E, ETD_NL >> (IN) Pre-computed ETD operators.
+! PSI, CHI, B   >> (IN) State at time t_n.
+!               >> (OUT) Overwritten with the predicted state at t_{n+1/2}.
+! SOLVER (OPTIONAL) >> (INOUT) Solver object to store history variables.
+!=======================================================================
+  IMPLICIT NONE
+  TYPE(SCALAR), INTENT(INOUT)   :: PSI, CHI, B
+  COMPLEX(P8), DIMENSION(4,4), INTENT(IN) :: ETD_E, ETD_NL
+  TYPE(SOLVER_T), INTENT(INOUT), OPTIONAL :: SOLVER
+
+  TYPE(SCALAR):: RURN, RUPN, UZN, BN
+  TYPE(SCALAR):: RORN, ROPN, OZN
+  TYPE(SCALAR):: W
+
+  CALL ALLOCATE(RURN); CALL ALLOCATE(RUPN); CALL ALLOCATE(UZN)
+  CALL ALLOCATE(RORN); CALL ALLOCATE(ROPN); CALL ALLOCATE(OZN)
+
+  CALL CHOPSET(3)
+  CALL PC2VEL(PSI,CHI,RURN,RUPN,UZN)
+  CALL PC2VOR(PSI,CHI,RORN,ROPN,OZN)
+  CALL CHOPSET(-3)
+
+  ! CALCULATE NONLINEAR TERMS: U X W AND -(U.GRAD)B' 
+  ! NOTES:
+  ! - B REMAIN IN FFF SPACE
+  ! - RURN, RUPN, UZN ARE RETURNED IN PPP SPACE
+  !   AND UPDATED WITH FREESTREAM ADJUSTMENT
+  ! - RORN, ROPN, OZN ARE RETURNED IN PPP SPACE
+  !   AND UPDATED WITH THE NONLINEAR RESULT
+  CALL BOUSSINESQ_NONLIN(B,RURN,RUPN,UZN,BN,RORN,ROPN,OZN)
+  CALL ETD1_SUB(ETD_E,ETD_NL,B,RURN,RUPN,UZN,BN,RORN,ROPN,OZN)
+  CALL TOFF(B)
+
+  IF (PRESENT(SOLVER)) THEN ! SAVE NONLINEAR STATES TO SOLVER
+    SOLVER%N_B = BN
+    SOLVER%R_N_R = RORN
+    SOLVER%R_N_P = ROPN
+    SOLVER%N_Z = OZN
+  ENDIF
+  CALL DEALLOCATE(BN)
+  CALL DEALLOCATE(RORN)
+  CALL DEALLOCATE(ROPN)
+  CALL DEALLOCATE(OZN)
+
+  CALL ALLOCATE(W)
+  CALL PROJECT(RURN,RUPN,UZN,PSI,W)
+  CALL IDEL2(W, CHI)
+
+  CALL DEALLOCATE(W)
+  CALL DEALLOCATE(RURN)
+  CALL DEALLOCATE(RUPN)
+  CALL DEALLOCATE(UZN)
+
+  RETURN
+  END SUBROUTINE ETD1FE
+!=======================================================================
+
+  SUBROUTINE RICH_ETD_KERNEL(THIS, PSI, CHI, B)
+!=======================================================================
+  IMPLICIT NONE
+  TYPE(SOLVER_T), INTENT(INOUT) :: THIS
+  TYPE(SCALAR), INTENT(INOUT)   :: PSI, CHI, B
+
+  TYPE(SCALAR):: PSI2, CHI2, B2
+  REAL(P8):: DT, HDT
+  COMPLEX(P8),DIMENSION(4,4):: HETD_E, HETD_NL
+
+  IF (.NOT.ALLOCATED(THIS%ETD_E)) THEN
+    CALL MPRINT('ETD operators not initialized. Call ETD_INIT before using RICH_ETD_KERNEL.')
+    CALL MPI_ABORT(MPI_COMM_IVP, ERR_FLAGS%SOLVER, IERR)
+  ENDIF
+
+  DT = TIM%DT
+  HDT = DT*0.5D0
+  CALL ETD_INIT(HETD_E, HETD_NL, HDT)
+
+  TIM%T = TIM%T + DT
+  TIM%N = TIM%N + 1
+  ADV%X = ADV%X + ADV%UX*DT
+  ADV%Y = ADV%Y + ADV%UY*DT
+
+  CALL ALLOCATE(PSI2); PSI2 = PSI
+  CALL ALLOCATE(CHI2); CHI2 = CHI
+  CALL ALLOCATE(  B2);   B2 =   B
+
+  ! FIRST HALF-STEP
+  CALL ETD1FE(PSI2, CHI2, B2, HETD_E, HETD_NL, THIS)
+  CALL VISC1(PSI2,CHI2,B2,HDT)
+  CALL HYPERV(PSI2,CHI2,B2,HDT)
+
+  ! SECOND HALF-STEP
+  CALL ETD1FE(PSI2, CHI2, B2, HETD_E, HETD_NL)
+  CALL VISC1(PSI2,CHI2,B2,HDT)
+  CALL HYPERV(PSI2,CHI2,B2,HDT)
+
+  ! FULL STEP
+  CALL ETD1FE(PSI, CHI, B, THIS%ETD_E, THIS%ETD_NL)
+  CALL VISC1(PSI,CHI,B,DT)
+  CALL HYPERV(PSI,CHI,B,DT)
+
+  PSI%E =(2.0D0*PSI2%E)-PSI%E
+  CHI%E =(2.0D0*CHI2%E)-CHI%E
+    B%E =(2.0D0*  B2%E)-  B%E
+
+  CALL DEALLOCATE( PSI2 )
+  CALL DEALLOCATE( CHI2 )
+  CALL DEALLOCATE(   B2 )
+
+  RETURN
+  END SUBROUTINE RICH_ETD_KERNEL
+!=======================================================================
+
+  SUBROUTINE ETD_INIT(ETD_E, ETD_NL, DT)
+!=======================================================================
+! [USAGE]: 
+! Pre-compute ETD operators for ETD-CN scheme.
+!=======================================================================
+  IMPLICIT NONE
+  COMPLEX(P8), INTENT(INOUT), DIMENSION(:,:) :: ETD_E, ETD_NL
+  REAL(P8) :: DT
+
+  COMPLEX(P8), DIMENSION(4,4) :: S, J, S_INV, J_EXP, J_PHI1
+  INTEGER :: I
+
+  CALL CALC_BOUSS_DIAG(J, S, S_INV, .TRUE.)
+  J_EXP  = CMPLX(0.0D0, 0.0D0, P8)
+  J_PHI1 = CMPLX(0.0D0, 0.0D0, P8)
+  DO I = 1, 4
+    J_EXP(I,I) = EXP(J(I,I) * DT)
+    IF (ABS(J(I,I)) > 1.0D-14) THEN
+      J_PHI1(I,I) = (J_EXP(I,I) - 1.0D0) / J(I,I)
+    ELSE
+      J_PHI1(I,I) = DT
+    ENDIF
+  ENDDO
+  ETD_E  = MATMUL(S, MATMUL(J_EXP, S_INV))
+  ETD_NL = MATMUL(S, MATMUL(J_PHI1, S_INV))
+
+  ! DIAGNOST
+  IF (MPI_RANK .EQ. 0) THEN
+    WRITE(*,*) 'SOLVER: ETD operators initialized for dt = ', DT
+    WRITE(*,*) 'ETD_E:'
+    CALL MCAT(ETD_E)
+    WRITE(*,*) 'ETD_NL:'
+    CALL MCAT(ETD_NL)
+  ENDIF
+
+  RETURN
+  END SUBROUTINE ETD_INIT
+!=======================================================================
+
+  SUBROUTINE ETD1_SUB(ETD_E,ETD_A,B,RUR,RUP,UZ,NB,RNR,RNP,NZ)
+!=======================================================================
+! [USAGE]:
+! APPLY 1ST ORDER EXPONENTIAL TIME DIFFERENCING SCHEME:
+! L = S * J * S^-1
+! E = S * exp(J*DT) * S^-1
+! A = S * J^-1 * (exp(J*DT)-I) * S^-1
+! U^(N+1/2) = E*U^(N) + A*N[U^(N)]
+! [PARAMETERS]:
+! THIS >> SOLVER OBJECT CONTAINING THE NONLINEAR STATE OF PREV STEP
+!   B >> ON ENTRY, B OF CURRENT STEP
+!        ON EXIT, B^(N+1/2)
+! RUR >> ON ENTRY, R*U_R OF CURRENT STEP IN PPP SPACE
+!        ON EXIT, R*U^(N+1/2)_R
+! RUP >> ON ENTRY, R*U_P OF CURRENT STEP IN PPP SPACE
+!        ON EXIT, R*U^(N+1/2)_P
+!  UZ >> ON ENTRY, U_Z OF CURRENT STEP IN PPP SPACE
+!        ON EXIT, U^(N+1/2)_Z
+!  NB >> ON ENTRY, N_B OF CURRENT STEP IN PPP SPACE
+! RNR >> ON ENTRY, R*N_R OF CURRENT STEP IN PPP SPACE
+! RNP >> ON ENTRY, R*N_P OF CURRENT_STEP IN PPP SPACE
+!  NZ >> ON ENTRY, N_Z OF CURRENT STEP IN PPP SPACE
+! [NOTES]:
+! THE LINEAR OPERATOR (L) STAYS UNCHANGED FOR THE RE-SCALED STATE
+! VARIABLE [RUR, RUP, UZ, B]^T, SO E AND A MATRICES REMAIN UNCHANGED
+!=======================================================================
+  IMPLICIT NONE
+  COMPLEX(P8), DIMENSION(4,4), INTENT(IN):: ETD_E, ETD_A
+  TYPE(SCALAR),INTENT(IN):: RNR,RNP,NZ,NB
+  TYPE(SCALAR),INTENT(INOUT):: RUR,RUP,UZ,B
+
+  INTEGER:: NI, NJ, NK, II, JJ, KK
+  COMPLEX(P8), DIMENSION(4,1) :: EV, AV, CV
+
+  ! CHECK IF RUR, NB, RNR ARE IN PPP SPACE
+  IF ((RUR%SPACE .NE. PPP_SPACE).OR.(NB%SPACE .NE. PPP_SPACE).OR.(RNR%SPACE .NE. PPP_SPACE)) THEN
+    CALL MPRINT('ETD2_SUB: RUR, NB, RNR must be in PPP space.')
+    CALL MPI_ABORT(MPI_COMM_IVP, ERR_FLAGS%LEGOPERATOR, IERR)
+  ENDIF
+
+  IF (B%SPACE .NE. PPP_SPACE) CALL TOFP(B)
+
+  IF ((RUR%LN .NE. 0.D0) .OR. (RUP%LN .NE. 0.D0) .OR. (UZ%LN .NE. 0.D0)) THEN
+    CALL MPRINT('ETD2_SUB: RUR, RUP, UZ must have no log terms.')
+    CALL MPI_ABORT(MPI_COMM_IVP, ERR_FLAGS%SCALAR3_LOGTERM, IERR)
+  ENDIF
+
+  ! ALL SCALARS ARE IN PPP SPACE AND HAVE NO LOG TERMS:
+  DO II = 1,SIZE(B%E,1)
+    DO JJ = 1,SIZE(B%E,2)
+      DO KK = 1,SIZE(B%E,3)
+        ! E*U^(N) + A*N[U^(N)]
+        EV(1,1) = RUR%E(II,JJ,KK)
+        EV(2,1) = RUP%E(II,JJ,KK)
+        EV(3,1) = UZ%E(II,JJ,KK)
+        EV(4,1) = B%E(II,JJ,KK)
+
+        AV(1,1) = RNR%E(II,JJ,KK)
+        AV(2,1) = RNP%E(II,JJ,KK)
+        AV(3,1) = NZ%E(II,JJ,KK)
+        AV(4,1) = NB%E(II,JJ,KK)
+
+        CV = MATMUL(ETD_E, EV) + MATMUL(ETD_A, AV)
+        RUR%E(II,JJ,KK) = CV(1,1)
+        RUP%E(II,JJ,KK) = CV(2,1)
+        UZ%E(II,JJ,KK) = CV(3,1)
+        B%E(II,JJ,KK) = CV(4,1)
+      
+      ENDDO
+    ENDDO
+  ENDDO
+
+  RETURN
+  END SUBROUTINE ETD1_SUB
+!=======================================================================
+
+  SUBROUTINE ETD2_SUB(THIS,B,RUR,RUP,UZ,NB,RNR,RNP,NZ)
+!=======================================================================
+! [USAGE]:
+! APPLY EXPONENTIAL TIME DIFFERENCING SCHEME:
+! L = S * J * S^-1
+! E = S * exp(J*DT) * S^-1
+! A = (3/2) * S * J^-1 * (exp(J*DT)-I) * S^-1
+! B = (1/2) * S * J^-1 * (exp(J*DT)-I) * S^-1
+! U^(N+1/2) = E*U^(N) + A*N[U^(N)] - B*N[U^(N-1)]
+! [PARAMETERS]:
+! THIS >> SOLVER OBJECT CONTAINING THE NONLINEAR STATE OF PREV STEP
+!   B >> ON ENTRY, B OF CURRENT STEP
+!        ON EXIT, B^(N+1/2)
+! RUR >> ON ENTRY, R*U_R OF CURRENT STEP IN PPP SPACE
+!        ON EXIT, R*U^(N+1/2)_R
+! RUP >> ON ENTRY, R*U_P OF CURRENT STEP IN PPP SPACE
+!        ON EXIT, R*U^(N+1/2)_P
+!  UZ >> ON ENTRY, U_Z OF CURRENT STEP IN PPP SPACE
+!        ON EXIT, U^(N+1/2)_Z
+!  NB >> ON ENTRY, N_B OF CURRENT STEP IN PPP SPACE
+! RNR >> ON ENTRY, R*N_R OF CURRENT STEP IN PPP SPACE
+! RNP >> ON ENTRY, R*N_P OF CURRENT_STEP IN PPP SPACE
+!  NZ >> ON ENTRY, N_Z OF CURRENT STEP IN PPP SPACE
+!=======================================================================
+  IMPLICIT NONE
+  TYPE(SOLVER_T),INTENT(IN):: THIS
+  TYPE(SCALAR),INTENT(IN):: RNR,RNP,NZ,NB
+  TYPE(SCALAR),INTENT(INOUT):: RUR,RUP,UZ,B
+
+  INTEGER:: NI, NJ, NK, II, JJ, KK
+  COMPLEX(P8), DIMENSION(4,1) :: EV, ABV, CV
+
+  ! CHECK IF RUR, NB, RNR ARE IN PPP SPACE
+  IF ((RUR%SPACE .NE. PPP_SPACE).OR.(NB%SPACE .NE. PPP_SPACE).OR.(RNR%SPACE .NE. PPP_SPACE)) THEN
+    CALL MPRINT('ETD2_SUB: RUR, NB, RNR must be in PPP space.')
+    CALL MPI_ABORT(MPI_COMM_IVP, ERR_FLAGS%LEGOPERATOR, IERR)
+  ENDIF
+
+  IF (B%SPACE .NE. PPP_SPACE) CALL TOFP(B)
+
+  IF ((RUR%LN .NE. 0.D0) .OR. (RUP%LN .NE. 0.D0) .OR. (UZ%LN .NE. 0.D0)) THEN
+    CALL MPRINT('ETD2_SUB: RUR, RUP, UZ must have no log terms.')
+    CALL MPI_ABORT(MPI_COMM_IVP, ERR_FLAGS%SCALAR3_LOGTERM, IERR)
+  ENDIF
+
+  ! ALL SCALARS ARE IN PPP SPACE AND HAVE NO LOG TERMS:
+  DO II = 1,SIZE(B%E,1)
+    DO JJ = 1,SIZE(B%E,2)
+      DO KK = 1,SIZE(B%E,3)
+        ! E*U^(N) + A*N[U^(N)] - B*N[U^(N-1)]
+        EV(1,1) = RUR%E(II,JJ,KK)
+        EV(2,1) = RUP%E(II,JJ,KK)
+        EV(3,1) = UZ%E(II,JJ,KK)
+        EV(4,1) = B%E(II,JJ,KK)
+
+        ABV(1,1) = (3.0D0/2.0D0)*RNR%E(II,JJ,KK) - (1.0D0/2.0D0)*THIS%R_N_R%E(II,JJ,KK)
+        ABV(2,1) = (3.0D0/2.0D0)*RNP%E(II,JJ,KK) - (1.0D0/2.0D0)*THIS%R_N_P%E(II,JJ,KK)
+        ABV(3,1) = (3.0D0/2.0D0)*NZ%E(II,JJ,KK) - (1.0D0/2.0D0)*THIS%N_Z%E(II,JJ,KK)
+        ABV(4,1) = (3.0D0/2.0D0)*NB%E(II,JJ,KK) - (1.0D0/2.0D0)*THIS%N_B%E(II,JJ,KK)
+
+        CV = MATMUL(THIS%ETD_E, EV) + MATMUL(THIS%ETD_NL, ABV)
+        RUR%E(II,JJ,KK) = CV(1,1)
+        RUP%E(II,JJ,KK) = CV(2,1)
+        UZ%E(II,JJ,KK) = CV(3,1)
+        B%E(II,JJ,KK) = CV(4,1)
+      
+      ENDDO
+    ENDDO
+  ENDDO
+
+  RETURN
+  END SUBROUTINE ETD2_SUB
 !=======================================================================
 !============================ SUBROUTINES ==============================
 !=======================================================================
@@ -152,7 +793,7 @@ CONTAINS
   CALL ALLOCATE(   BN )
 
   ! CALL NONLIN(PSI,CHI,PSIN,CHIN)
-  CALL BOUSSINESQ_AB(PSI,CHI,B,PSIN,CHIN,BN)
+  CALL BOUSSINESQ_FULL(PSI,CHI,B,PSIN,CHIN,BN)
 
   CALL ALLOCATE( PSI0 )
   CALL ALLOCATE( CHI0 )
@@ -212,8 +853,6 @@ CONTAINS
   TYPE(SCALAR):: P_N,C_N,B_N
   REAL(P8):: DT, HDT
 
-  CALL KRYLOV_INIT()
-
   DT = TIM%DT
   HDT = DT*0.5D0
   TIM%T = TIM%T + DT
@@ -228,7 +867,7 @@ CONTAINS
   ! FIRST HALF-STEP
   ! CALL NONLIN(PSI,CHI,PSIN,CHIN)
   ! CALL BOUSSINESQ(PSI,CHI,B,PSIN,CHIN,BN)
-  call BOUSSINESQ_AB(PSI,CHI,B,PSIN,CHIN,BN)
+  call BOUSSINESQ_FULL(PSI,CHI,B,PSIN,CHIN,BN)
 
   PSI2%E =PSI%E + (HDT*PSIN%E)
   CHI2%E =CHI%E + (HDT*CHIN%E)
@@ -243,7 +882,7 @@ CONTAINS
   ! SECOND HALF-STEP
   ! CALL NONLIN(PSI2,CHI2,P_N,C_N)
   ! CALL BOUSSINESQ(PSI2,CHI2,B2,P_N,C_N,B_N)
-  CALL BOUSSINESQ_AB(PSI2,CHI2,B2,P_N,C_N,B_N)
+  CALL BOUSSINESQ_FULL(PSI2,CHI2,B2,P_N,C_N,B_N)
 
   PSI2%E =PSI2%E + (HDT*P_N%E)
   CHI2%E =CHI2%E + (HDT*C_N%E)
@@ -272,162 +911,6 @@ CONTAINS
 
   RETURN
   END SUBROUTINE RICH
-!=======================================================================
-
-  SUBROUTINE KRYLOV_INIT()
-!=======================================================================
-! [USAGE]: 
-! INITIALIZE KRYLOV SUBSPACE FOR NONLINEAR SOLVER
-!=======================================================================
-  IMPLICIT NONE
-  COMPLEX(P8),DIMENSION(4,4):: S_L, J, S_R, J_EXP, J_INV, IDEN
-  INTEGER:: I
-  REAL(P8):: N, OMEGA, DT
-
-  ! Check if Adams-Bashforth method is used for linear terms
-  IF (BSNSQ%ADAMS) RETURN
-  
-  ! Get parameters from BSNSQ
-  N = BSNSQ%BV0
-  OMEGA = BSNSQ%OMEGA
-  DT = TIM%DT
-  
-  ! Initialize matrices to zero
-  J = CMPLX(0.0D0, 0.0D0, P8)
-  S_L = CMPLX(0.0D0, 0.0D0, P8)
-  S_R = CMPLX(0.0D0, 0.0D0, P8)
-  IDEN = CMPLX(0.0D0, 0.0D0, P8)
-  
-  ! Identity matrix
-  DO I = 1, 4
-    IDEN(I,I) = CMPLX(1.0D0, 0.0D0, P8)
-  ENDDO
-  
-  ! Initialize the J diagonal matrix
-  J(1,1) = -IU * N
-  J(2,2) = IU * N
-  J(3,3) = -2.0D0 * IU * OMEGA
-  J(4,4) = 2.0D0 * IU * OMEGA
-  
-  ! Initialize the S_L matrix
-  S_L(1,3) = IU
-  S_L(1,4) = -IU
-  S_L(2,3) = 1.0D0
-  S_L(2,4) = 1.0D0
-  S_L(3,1) = -IU / N
-  S_L(3,2) = IU / N
-  S_L(4,1) = 1.0D0
-  S_L(4,2) = 1.0D0
-  
-  ! Initialize the S_R matrix
-  S_R(1,3) = IU * N / 2.0D0
-  S_R(1,4) = 0.5D0
-  S_R(2,3) = -IU * N / 2.0D0
-  S_R(2,4) = 0.5D0
-  S_R(3,1) = -IU / 2.0D0
-  S_R(3,2) = 0.5D0
-  S_R(4,1) = IU / 2.0D0
-  S_R(4,2) = 0.5D0
-  
-  ! Compute matrix exponential for diagonal J
-  J_EXP = IDEN
-  DO I = 1, 4
-    J_EXP(I,I) = EXP(J(I,I) * DT)
-  ENDDO
-  
-  ! Compute J inverse
-  J_INV = IDEN
-  DO I = 1, 4
-    IF (ABS(J(I,I)) > 1.0D-14) THEN
-      J_INV(I,I) = 1.0D0 / J(I,I)
-    ELSE
-      J_INV(I,I) = CMPLX(0.0D0, 0.0D0, P8)
-    ENDIF
-  ENDDO
-  
-  ! Calculate S_0 = S_R * e^{J*DT} * S_L
-  BSNSQ%S_0 = MATMUL(S_R, MATMUL(J_EXP, S_L))
-  
-  ! Calculate S_N = S_R * J^-1 * (e^{J*DT} - I) * S_L
-  BSNSQ%S_N = MATMUL(S_R, MATMUL(J_INV, MATMUL(J_EXP - IDEN, S_L)))
-  
-  IF (MPI_RANK.EQ.0) THEN
-    WRITE(*,*) 'Krylov subspace initialized for linear part'
-  ENDIF
-
-  RETURN
-  END SUBROUTINE KRYLOV_INIT
-!=======================================================================
-
-  SUBROUTINE KRYLOV2(PSI,CHI,B,PSINO,CHINO,BNO)
-!=======================================================================
-! [USAGE]: 
-! UPDATE POLOIDAL-TOROIDAL TERMS OF THE VELOCITY FIELD BY 1 TIME STEP
-! USING ADAMS-BASHFORTH METHOD
-! [PARAMETERS]:
-! PSI >> TOROIDAL TERM IN A SCALAR-TYPE VARIABLE
-! CHI >> POLOIDAL TERM IN A SCALAR-TYPE VARIABLE
-! B   >> DENSITY TERM IN A SCALAR-TYPE VARIABLE
-! PSINO >> NONLINEAR COMPONENT OF THE TOROIDAL TERM IN THE PREVIOUS STEP
-! CHINO >> NONLINEAR COMPONENT OF THE POLOIDAL TERM IN THE PREVIOUS STEP
-! BNO   >> NONLINEAR COMPONENT OF THE DENSITY  TERM IN THE PREVIOUS STEP
-! [DEPENDENCIES]:
-! 1. (DE)ALLOCATE(~) @ MOD_SCALAR3
-! 2. NONLIN(~) @ MOD_LEGOPS
-! 3. VISC2(~) @ MOD_MARCH
-! 4. HYPERV(~) @ MOD_MARCH
-! [UPDATES]:
-! RE-CODED BY SANGJOON LEE @ NOV 20 2020
-!=======================================================================
-  IMPLICIT NONE
-  TYPE(SCALAR):: PSI,CHI,B,PSINO,CHINO,BNO
-  TYPE(SCALAR):: PSIN,CHIN,BN
-
-  TYPE(SCALAR):: PSI0,CHI0,B0
-  REAL(P8):: DT
-
-  DT = TIM%DT
-  TIM%T = TIM%T + DT
-  TIM%N = TIM%N + 1
-  ADV%X = ADV%X + ADV%UX*DT
-  ADV%Y = ADV%Y + ADV%UY*DT
-
-  CALL ALLOCATE( PSIN )
-  CALL ALLOCATE( CHIN )
-  CALL ALLOCATE(   BN )
-
-  ! NONLINEAR TERMS FOR CURRENT TIME STEP
-  CALL BOUSSINESQ_NONLIN(PSI,CHI,B,PSIN,CHIN,BN)
-
-  CALL ALLOCATE( PSI0 )
-  CALL ALLOCATE( CHI0 )
-  CALL ALLOCATE(   B0 )
-
-  PSI0 = PSI
-  CHI0 = CHI
-  B0 = B
-
-  PSI%E = PSI%E +DT*(1.5D0*PSIN%E -0.5D0*PSINO%E)
-  CHI%E = CHI%E +DT*(1.5D0*CHIN%E -0.5D0*CHINO%E)
-    B%E =   B%E +DT*(1.5D0*  BN%E -0.5D0*  BNO%E)
-
-  PSINO=PSIN
-  CHINO=CHIN
-    BNO=  BN
-
-  CALL DEALLOCATE( PSIN )
-  CALL DEALLOCATE( CHIN )
-  CALL DEALLOCATE(   BN )
-
-  CALL VISC2(PSI,CHI,B,PSI0,CHI0,B0)
-  CALL HYPERV(PSI,CHI,B,DT)
-
-  CALL DEALLOCATE( PSI0 )
-  CALL DEALLOCATE( CHI0 )
-  CALL DEALLOCATE(   B0 )
-
-  RETURN
-  END SUBROUTINE KRYLOV2
 !=======================================================================
 
   SUBROUTINE EULER(PSI,CHI,B,PSIN,CHIN,BN)
@@ -463,7 +946,7 @@ CONTAINS
 
   ! CALL NONLIN(PSI,CHI,PSIN,CHIN)
   ! CALL BOUSSINESQ(PSI,CHI,B,PSIN,CHIN,BN)
-  CALL BOUSSINESQ_AB(PSI,CHI,B,PSIN,CHIN,BN)
+  CALL BOUSSINESQ_FULL(PSI,CHI,B,PSIN,CHIN,BN)
 
   PSI%E =PSI%E + (DT*PSIN%E)
   CHI%E =CHI%E + (DT*CHIN%E)
@@ -801,7 +1284,7 @@ CONTAINS
     RUR=PSI
     RUR%LN=0
     CALL XXDX(RUR,RUP)
-    VALANG = -INTEG(RUP)
+    VALANG = -INTEG(RUP) ! TODO: THIS IS INCORRECT SINCE IT INTEGRATES (1-X)^2*RDR[PSI]
 
     !> KINETIC ENERGY P157
     ! NOTE:
@@ -831,7 +1314,7 @@ CONTAINS
     CALL DELSQH(RUP,RUR) ! RUR = DELSQH(PSI)/(1-X)^2
     CALL RTRAN(RUR,1)
     RUP=PSI
-    RUP%LN=0
+    RUP%LN=0.D0
     CALL RTRAN(RUP,1)
     ENE1= PRODCT(RUR,RUP) ! PRODCT(A,B) CALCULATES THE PRODUCT OF A*B*(1-X)^2 AND INTEGRATES OVER THE DOMAIN
 
@@ -1364,7 +1847,7 @@ CONTAINS
   CALL DELSQH(W1,W2)
   CALL RTRAN(W2,1)
   W1=PSI
-  W1%LN=0
+  W1%LN=0.D0
   CALL RTRAN(W1,1)
   EM= PRODCTM(W2,W1)
   IF (PRESENT(EK)) THEN
@@ -1483,6 +1966,115 @@ CONTAINS
   END SUBROUTINE HYPADJ
 ! ======================================================================
 
+SUBROUTINE HYPSET()
+! ======================================================================
+! CALCULATE THE HYPERVISCOSITY
+! EXP[ - NUP * (FILTER * MODE # / FACTOR)^P * DT]
+! ======================================================================
+  IMPLICIT NONE
+
+  REAL(P8) :: NU_R, NU_T, NU_X
+  INTEGER :: NT_UP, NX_UP
+
+  REAL(P8) :: FACTOR_NU
+  INTEGER :: II, JJ
+  INTEGER :: FACTOR_UP, MONITOR_K(3)
+  
+  REAL(P8) :: FACTOR_R, FACTOR_T, FACTOR_X
+  REAL(P8) :: INDEX_R(NRCHOP), INDEX_T(NTCHOPDIM), INDEX_X(NXCHOPDIM)
+  REAL(P8) :: FILTER_R(NRCHOP), FILTER_T(NTCHOPDIM), FILTER_X(NXCHOPDIM)
+!  REAL(P8) :: HYPER_R(NRCHOP), HYPER_T(NTCHOPDIM), HYPER_X(NXCHOPDIM)
+
+  FACTOR_NU = 2.D0
+
+  FACTOR_R = 1.D0
+  FACTOR_T = 0.8
+  FACTOR_X = 1.D0
+
+  ! IF PERTURBATION/DISTURBANCE SIZE IS 0.1, ITS FACTOR_UP-TH HARMONICS
+  ! WILL GET BELOW MACHINE ROUND-OFF ERROR
+  FACTOR_UP = 24 ! DP
+  NT_UP = MIN(FACTOR_UP*MAX(MAXVAL(MONITOR_MK(1:3,1)),1),NTCHOP-1)
+  DO II = 1,3
+    MONITOR_K(II) = MONITOR_MK(II,2)
+    IF (MONITOR_K(II).GT.NXCHOP) MONITOR_K(II) = MONITOR_K(II) + 1 - 2*NXCHOP
+    MONITOR_K(II) = ABS(MONITOR_K(II))
+  ENDDO
+!   NX_UP = MIN(FACTOR_UP*MAX(MAXVAL(ABS(MONITOR_MK(1:3,2))),1),NXCHOP-1)
+  NX_UP = MIN(FACTOR_UP*MAX(MAXVAL(MONITOR_K),1),NXCHOP-1)
+
+  ! CREATE TANH FILTERS
+  ! R: CENTER AT 1/2*NRCHOP WIDTH NRCHOP/4
+  INDEX_R = (/(II, II=1,NRCHOP)/)
+  FILTER_R = 0.5*(TANH((INDEX_R/REAL(NRCHOP)-1.D0/2.D0)*4.D0)+1.D0)
+  ! T: CENTER AT 2/3*NT_UP WIDTH NT_UP/4
+  INDEX_T = (/(II, II=0,NTCHOPDIM-1)/)
+  FILTER_T = 0.5*(TANH((INDEX_T/REAL(NT_UP)-1.D0/2.D0)*5.D0)+1.D0)
+  ! X: CENTER AT 2/3*NX_UP WIDTH NX_UP/4
+  DO II=1,NXCHOPDIM
+    INDEX_X(II) = II-1
+    IF(II.GT.NXCHOP) THEN
+        INDEX_X(II)=ABS(-(NXCHOPDIM-II+1))
+    ENDIF
+  ENDDO
+  FILTER_X = 0.5*(TANH((INDEX_X/REAL(NX_UP)-1.D0/2.D0)*8.D0)+1.D0)
+
+  ! FORCE THE LAST MODE TO DECAY AT EXP(-1*DT) WHILE ALSO USING TANH TO
+  ! PREVENT CHANGES TO THE INTERESTED MODES
+  NU_R = FACTOR_NU*(FACTOR_R*FILTER_R(NRCHOP))**(-VISC%P) 
+  NU_T = FACTOR_NU*(FACTOR_T*FILTER_T(NTCHOPDIM))**(-VISC%P+2)
+  NU_X = FACTOR_NU*(FACTOR_X*FILTER_X(NXCHOP))**(-VISC%P+2)
+
+  ! CREATE HYPERV VECTORS
+  ALLOCATE(HYPER_R(NRCHOP), HYPER_T(NTCHOPDIM), HYPER_X(NXCHOPDIM))
+  HYPER_R = EXP(-(NU_R*TIM%DT)*(FILTER_R*INDEX_R/NRCHOP)**VISC%P)
+  HYPER_T = EXP(-(NU_T*TIM%DT)*(FILTER_T*INDEX_T/NTCHOP)**(VISC%P-2))
+  HYPER_X = EXP(-(NU_X*TIM%DT)*(FILTER_X*INDEX_X/NXCHOP)**(VISC%P-2))
+
+   ! SAVE HYPER VECTORS
+   IF (MPI_RANK.EQ.0) THEN
+      open(UNIT=888,FILE='hyperv.dat',STATUS='UNKNOWN',ACTION='WRITE')
+      ! write(888,518) NU_R, FILTER_R
+      ! write(888,518) NU_T, FILTER_T
+      ! write(888,518) NU_X, FILTER_X
+      write(888,518) NU_R, HYPER_R
+      write(888,518) NU_T, HYPER_T
+      write(888,518) NU_X, HYPER_X
+      close(888)
+   518 FORMAT((E23.16),*(' ,',E23.16))
+      ! CALL MPI_ABORT(MPI_COMM_WORLD,1,IERR)
+   ENDIF
+
+  RETURN
+END SUBROUTINE
+! ======================================================================
+
+SUBROUTINE HYPERV3(PSI,CHI,B)
+! ======================================================================
+! APPLY HYPERVISCOSITY USING EXPONENTIAL SCALING
+! ONLY ACTIVE WHEN VISC%SW = 3
+! ======================================================================
+  IMPLICIT NONE
+  TYPE(SCALAR):: PSI,CHI,B
+  INTEGER:: MM, KK, NN
+
+   IF (VISC%SW.EQ.3) THEN
+    
+      IF (.NOT.(ALLOCATED(HYPER_R))) CALL HYPSET()
+
+      DO KK = 1,SIZE(PSI%E,3); DO MM = 1,SIZE(PSI%E,2)
+
+         NN = NRCHOPS(MM + PSI%INTH)
+         PSI%E(:NN,MM,KK) = PSI%E(:NN,MM,KK)*HYPER_R(:NN)*HYPER_T(MM+PSI%INTH)*HYPER_X(KK+PSI%INX)
+         CHI%E(:NN,MM,KK) = CHI%E(:NN,MM,KK)*HYPER_R(:NN)*HYPER_T(MM+PSI%INTH)*HYPER_X(KK+PSI%INX)
+           B%E(:NN,MM,KK) =   B%E(:NN,MM,KK)*HYPER_R(:NN)*HYPER_T(MM+PSI%INTH)*HYPER_X(KK+PSI%INX)
+
+      ENDDO; ENDDO
+      
+   ENDIF
+
+  RETURN
+END SUBROUTINE
 !=======================================================================
 !============================= FUNCTIONS ===============================
 !=======================================================================
