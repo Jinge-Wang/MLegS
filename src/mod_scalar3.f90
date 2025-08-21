@@ -6,7 +6,7 @@ USE MOD_MISC, ONLY : P4,P8,PI,IU, CP8_SIZE                         ! LEVEL 0
 !XUSE USE MOD_FD                                                         ! LEVEL 1
 USE MOD_EIG                                                        ! LEVEL 1
 USE MOD_LIN_LEGENDRE                                               ! LEVEL 1
-!XUSE USE MOD_BANDMAT                                                    ! LEVEL 1
+USE IEEE_ARITHMETIC, ONLY: IEEE_IS_FINITE
 IMPLICIT NONE
 PRIVATE
 !=======================================================================
@@ -118,8 +118,8 @@ PUBLIC:: INTEG_MK                                                  ! AVAILABLE O
 ! PRODUCT & INTEGRATE F=A*B*(1-X)**2. OVER THE DOMAIN
 PUBLIC:: PRODCT                                                    ! AVAILABLE ONLY WHEN SPACE = PFF
 PUBLIC:: PRODCT_MK, PRODCT_MK_ALLK, PRODCT_MK_HALFK                ! AVAILABLE ONLY WHEN SPACE = PFF
-! TEST IF A SCALAR CONTAINS NAN
-PUBLIC:: TEST_NAN
+! CHECK IF A SCALAR CONTAINS NAN
+PUBLIC:: ANYNAN
 
 INTERFACE PRODCT_MK
   MODULE PROCEDURE PRODCT_MK_ALLK
@@ -699,65 +699,54 @@ MAP_SIZE = SIZE(THIS%ENTRIES)
 
 END FUNCTION SPACE_MAP_SIZE
 !=======================================================================
-SUBROUTINE TEST_NAN(A, VAR_NAME)
-! ======================================================================
+SUBROUTINE ANYNAN(A,VAR_NAME)
+!=======================================================================
 ! [USAGE]:
-! Check if a scalar variable contains NaN values and report their locations
+! CHECK FOR NAN/INF VALUES IN A SCALAR FIELD AND REPORT DETAILS
 ! [PARAMETERS]:
-! A        >> SCALAR-TYPE VARIABLE TO CHECK
-! VAR_NAME >> NAME OF VARIABLE FOR REPORTING
-! ======================================================================
+! A >> SCALAR FIELD TO CHECK
+! VAR_NAME >> OPTIONAL NAME OF THE VARIABLE FOR ERROR REPORTING
+!=======================================================================
 IMPLICIT NONE
-TYPE(SCALAR), INTENT(IN) :: A
-CHARACTER(LEN=*), INTENT(IN) :: VAR_NAME
-LOGICAL :: HAS_NAN
-INTEGER :: NN, MM, KK, NAN_COUNT
+TYPE(SCALAR),INTENT(IN):: A
+CHARACTER(LEN=*),OPTIONAL,INTENT(IN):: VAR_NAME
+INTEGER:: NN,MM,KK
+LOGICAL:: FOUND_NAN
 
-! Safety check - return if array not allocated
-IF (.NOT. ASSOCIATED(A%E)) THEN
-  WRITE(*,'(A,A,A)') 'WARNING: Variable ', TRIM(VAR_NAME), ' not allocated!'
-  RETURN
-END IF
+FOUND_NAN = .FALSE.
 
-! Check for NaNs efficiently
-HAS_NAN = .FALSE.
-NAN_COUNT = 0
+! CHECK FOR NAN VALUES AND REPORT THE FIRST OCCURRENCE
+DO KK = 1,SIZE(A%E,3)
+  DO MM = 1,SIZE(A%E,2) 
+    DO NN = 1,SIZE(A%E,1)
+      IF (.NOT. IEEE_IS_FINITE(REAL(A%E(NN,MM,KK))) .OR. &
+          .NOT. IEEE_IS_FINITE(AIMAG(A%E(NN,MM,KK)))) THEN
 
-!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(NN,MM,KK) REDUCTION(+:NAN_COUNT) REDUCTION(.OR.:HAS_NAN)
-DO KK = 1, SIZE(A%E, 3)
-  DO MM = 1, SIZE(A%E, 2)
-    DO NN = 1, SIZE(A%E, 1)
-      IF (ISNAN(REAL(A%E(NN,MM,KK))) .OR. ISNAN(AIMAG(A%E(NN,MM,KK)))) THEN
-        HAS_NAN = .TRUE.
-        NAN_COUNT = NAN_COUNT + 1
-        ! Only print first few occurrences to avoid flooding output
-        IF (NAN_COUNT <= 10) THEN
-          WRITE(*,'(A,I4,A,A,A,3I5,A,2ES15.6)') 'Rank ', MPI_RANK, ': NaN in ', TRIM(VAR_NAME), &
-            ' at (NN,MM,KK): ', NN, MM, KK, ' Value: ', A%E(NN,MM,KK)
-        END IF
-      END IF
-    END DO
-  END DO
-END DO
-!$OMP END PARALLEL DO
+        IF (PRESENT(VAR_NAME)) THEN
+          WRITE(*,'("ERROR: NON-FINITE VALUES IN FIELD ",A," ON RANK ",I0," AT (",I0,",",I0,",",I0,")")') &
+          TRIM(ADJUSTL(VAR_NAME)), MPI_RANK, NN, MM, KK
+        ELSE
+          WRITE(*,'("ERROR: NON-FINITE VALUES IN SCALAR FIELD ON RANK ",I0," AT (",I0,",",I0,",",I0,")")') &
+          MPI_RANK, NN, MM, KK
+        ENDIF
+        WRITE(*,'("VALUE=",2ES12.4," DIMS=",3I0," SPACE=",I0," INTH=",I0," INX=",I0," INR=",I0," LN=",ES12.4)') &
+              REAL(A%E(NN,MM,KK)), AIMAG(A%E(NN,MM,KK)), SIZE(A%E,1), SIZE(A%E,2), SIZE(A%E,3), A%SPACE, A%INTH, A%INX, A%INR, A%LN
+        FOUND_NAN = .TRUE.
+        EXIT
+      ENDIF
+    ENDDO
+    IF (FOUND_NAN) EXIT
+  ENDDO
+  IF (FOUND_NAN) EXIT
+ENDDO
 
-! Summary report
-IF (HAS_NAN) THEN
-  WRITE(*,'(A,I4,A,A,A,I8,A)') 'Rank ', MPI_RANK, ': ERROR: Variable ', TRIM(VAR_NAME), &
-    ' contains ', NAN_COUNT, ' NaN values!'
-  IF (NAN_COUNT > 10) THEN
-    WRITE(*,'(A,I4,A,I8,A)') 'Rank ', MPI_RANK, ': (Only first 10 of ', NAN_COUNT, ' NaNs shown)'
-  END IF
-  CALL MPI_ABORT(MPI_COMM_IVP, ERR_FLAGS%SCALAR3_ISNAN, IERR)  ! Abort the program if NaNs found
-END IF
-
-! ! If no NaNs found, print confirmation
-! IF (.NOT. HAS_NAN) THEN
-!   WRITE(*,'(A,I4,A,A)') 'Rank ', MPI_RANK, ': Variable ', TRIM(VAR_NAME), ' has no NaN values.'
-! END IF
+CALL MPI_BARRIER(MPI_COMM_IVP,IERR)
+IF (FOUND_NAN) THEN
+  CALL MPI_ABORT(MPI_COMM_IVP, ERR_FLAGS%CALCULATION, IERR)
+ENDIF
 
 RETURN
-END SUBROUTINE TEST_NAN
+END SUBROUTINE ANYNAN
 !=======================================================================
 
 END MODULE MOD_SCALAR3
