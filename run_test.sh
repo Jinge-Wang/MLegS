@@ -25,6 +25,7 @@ rm -f ./output/*
 echo "Running bsnsq_test with $SLURM_NTASKS MPI tasks"
 
 srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/bsnsq_test_exec
+# srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/uz_test_exec
 
 # PAST TESTS:
 # (PASSED) srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/divxm_test_exec

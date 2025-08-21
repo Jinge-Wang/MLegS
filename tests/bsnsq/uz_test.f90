@@ -1,6 +1,40 @@
-program bsnsq_test
+program uz_testing
 ! ======================================================================
-! OPEN RE-FINED EIGENVECTORS AND RUN NONLINEAR SIMULATION 
+! TEST B-UZ CONVERSION
+! by JINGE WANG, Aug 2025
+! ======================================================================
+! [PURPOSE]:
+! To test the numerical conversion between a buoyancy perturbation `b`
+! and the resulting vertical velocity `uz`. This conversion is a key
+! part of the Boussinesq dynamics, where the buoyancy term `-b*z_hat`
+! in the momentum equation acts as a source for the poloidal potential
+! `chi` via an inverse Laplacian. A crucial aspect of this inversion is
+! the handling of a potential logarithmic term in `chi`, which is
+! physically required for axisymmetric (m=0), axially-uniform (k=0)
+! buoyancy distributions. This test compares two inverse Laplacian
+! solvers: `IDEL2`, which requires a pre-calculated log term, and
+! `IDEL2LN`, which solves for the log term internally.
+! [FINDINGS]:
+! 1. The standard solver `IDEL2`, when used without a pre-supplied
+!    logarithmic term, fails to correctly invert the buoyancy field.
+!    This failure manifests as a significant, unphysical magnitude
+!    increase in the highest radial mode of the m=0, k=0 component of
+!    the resulting `uz` field. This is the expected numerical artifact.
+! 2. The `IDEL2LN` solver, designed to handle this specific case,
+!    correctly computes the logarithmic term and produces a physically
+!    sound `uz` field without numerical artifacts.
+! 3. A manual calculation of the required log term from the initial `uz`
+!    field confirms that its value is consistent with the one computed
+!    internally by `IDEL2LN`, cross-verifying the implementation. The
+!    log term is -ELL2 * TFM%NORM(1,1) * F_000, where f = uz/(1-x)^2.
+!    Manually assigning `IDEL2` the correct log term allows it to
+!    produce a valid `uz` field.
+! [CONCLUSION]:
+! Using either the `IDEL2LN` or 'IDEL2' with manually calculated LN term
+! leads to the correct result. However, the `IDEL2LN` can be sensitive
+! to the last few modes, while manually calculating the LN term involves
+! division by (1-TFM%X)^2 in physical space, which may not be as accurate.
+! We still need to decide which method to use.s
 ! ======================================================================
    USE OMP_LIB
    USE MPI
@@ -21,20 +55,20 @@ program bsnsq_test
 implicit none
 ! -------------------------
 integer:: iii,it
-type(scalar):: psi_tot,chi_tot,b_per
-type(scalar):: uz_test, rur_test, rup_test
+type(scalar):: psi_tot,chi_tot,b_per,b_divxm2_per
+type(scalar):: uz_test, rur_test, rup_test, w
+type(scalar):: oz_test, ror_test, rop_test
 complex(p8), dimension(4,4):: ETD_E, ETD_NL
+real(p8):: chiln
 
 call setup_environment('noecho')
 call setup_grid(files%savedir)
 
 ! initialize fields
-! call allocate(psi_tot); call random_noise(psi_tot)
-! call allocate(chi_tot); call random_noise(chi_tot)
-! call allocate(b_per); call random_noise(b_per, is_save = .true.)
 call allocate(psi_tot); psi_tot%e = 0.d0
 call allocate(chi_tot); chi_tot%e = 0.d0
 call allocate(b_per); call gaussian_blob(b_per, 1.0d-3, 0.5d0, 0.0d0, 0.5*zlen, 1.d0, 0.1*zlen)
+call allocate(b_divxm2_per); call gaussian_blob_divxm2(b_divxm2_per, 1.0d-3, 0.5d0, 0.0d0, 0.5*zlen, 1.d0, 0.1*zlen)
 
 ! set up monitoring modes
 do iii = 1,size(monitor_mk,1)
@@ -48,60 +82,81 @@ if (mpi_rank.eq.0) then
    call print_real_time()
 endif
 
-!> first diagnostic
-call diagnost(psi_tot,chi_tot)
-call calc_energy(psi_tot,chi_tot,b_per,tim%t,files%savedir)
-call inspect_b(b_per,1)
+call allocate(uz_test)
+uz_test = b_per
+call rtran(uz_test,1)
+! call inspect_b(uz_test,1) ! PFF
+chiln = z2ln(uz_test)
+if ((uz_test%inth.eq.0).and.(uz_test%inx.eq.0)) then
+   write(*,*) 'chiln = ', chiln
+endif
 
-! !> half step test
-! call etd_init(etd_e, etd_nl, tim%dt)
-! etd_nl = 0.d0
-! call etd1fe(psi_tot, chi_tot, b_per, etd_e, etd_nl)
-! tim%t = tim%t + tim%dt
-! call calc_energy(psi_tot,chi_tot,b_per,tim%t,files%savedir)
-! call inspect_b(b_per,1)
-! if (mpi_rank.eq.0) then
-!    write(*,*) 'b_per%ln = ', b_per%ln
-!    write(*,*) 'psi_tot%ln = ', psi_tot%ln
-!    write(*,*) 'chi_tot%ln = ', chi_tot%ln
-! endif
-! call anynan(b_per,'b_per')
-! call anynan(psi_tot,'psi_tot')
-! call anynan(chi_tot,'chi_tot')
+!> b:
+tim%t = tim%t + tim%dt
+call inspect_b(b_per,1) ! FFF
+call allocate(rur_test,PFF_SPACE)
+call allocate(rup_test,PFF_SPACE)
+rur_test%e = 0.d0
+rup_test%e = 0.d0
 
-! call etd1fe(psi_tot, chi_tot, b_per, etd_e, etd_nl)
-! tim%t = tim%t + tim%dt
-! call calc_energy(psi_tot,chi_tot,b_per,tim%t,files%savedir)
-! call inspect_b(b_per,1)
+call allocate(w)
+call project(rur_test,rup_test,uz_test,psi_tot,w)
+call idel2(w,chi_tot,chiln)
+if (mpi_rank .eq. 0) write(*,*) 'idel2: chi_tot%ln = ', chi_tot%ln
+call chopset(3)
+call pc2vel(psi_tot,chi_tot,rur_test,rup_test,uz_test)
+call chopset(-3)
+call chopdo(uz_test)
+call inspect_b(uz_test,1) ! FFF
+! call rtran(uz_test,1)
+! call inspect_b(uz_test,1) ! PFF
 
-! call mprint('half step completed')
-! call deallocate(psi_tot)
-! call deallocate(chi_tot)
-! call deallocate(b_per)
-! call mpi_finalize(ierr)
+call idel2ln(w,chi_tot)
+if (mpi_rank .eq. 0) write(*,*) 'idel2ln: chi_tot%ln = ', chi_tot%ln
+call chopset(3)
+call pc2vel(psi_tot,chi_tot,rur_test,rup_test,uz_test)
+call chopset(-3)
+call chopdo(uz_test)
+call inspect_b(uz_test,1)
 
-!> initialize solver
-CALL PT_SOLVER%INITIALIZE(psi_tot, chi_tot, b_per)
-call diagnost(psi_tot,chi_tot)
-CALL CALC_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
+call deallocate(w)
+call deallocate(rur_test)
+call deallocate(rup_test)
+call deallocate(uz_test)
 
-!> startup
-iii = tim%limit/tim%dt
-files%n = 1
-do it=1,200
+!> b_divxm2
+tim%t = tim%t + tim%dt
+psi_tot%e = 0.d0
+chi_tot%e = 0.d0
+if ((b_divxm2_per%INTH.eq.0).and.(b_divxm2_per%INX.eq.0)) then
+   write(*,*) '-ell2*b_divxm2_per_(0,0,0)*norm(1,1) = ', -ell2*b_divxm2_per%e(1,1,1)*tfm%norm(1,1)
+end if
+b_divxm2_per%e = -b_divxm2_per%e
+! call inspect_b(b_divxm2_per,1) ! FFF
+call idelsqh(b_divxm2_per,chi_tot)
+if (mpi_rank .eq. 0) write(*,*) 'chi_tot%ln = ', chi_tot%ln
 
-   !> time-stepping
-   CALL PT_SOLVER%TIME_STEPPING(psi_tot, chi_tot, b_per)
-   CALL inspect_b(b_per,1)
+call allocate(rur_test)
+call allocate(rup_test)
+call allocate(uz_test)
+call chopset(3)
+call pc2vel(psi_tot,chi_tot,rur_test,rup_test,uz_test)
+call chopset(-3)
+call chopdo(uz_test)
+call inspect_b(uz_test,1) ! FFF
+! call rtran(uz_test,1)
+! call inspect_b(uz_test,1) ! PFF
 
-enddo
+call deallocate(rur_test)
+call deallocate(rup_test)
+call deallocate(uz_test)
 
-999 continue
+call deallocate(psi_tot)
+call deallocate(chi_tot)
+call deallocate(b_per)
+call deallocate(b_divxm2_per)
 
-! call combine_mode_files(0, NXCHOPDIM, './output')
-
-!> final printout
-CALL PT_SOLVER%FINALIZE(psi_tot, chi_tot, b_per)
+call mpi_finalize(ierr)
 
 ! ======================================================================
 contains
@@ -577,33 +632,122 @@ subroutine gaussian_blob(field, amplitude, r0, phi0, z0, wr, wz)
 
 end subroutine gaussian_blob
 
+subroutine gaussian_blob_divxm2(field, amplitude, r0, phi0, z0, wr, wz)
+!=======================================================================
+! [USAGE]:
+! Initializes a scalar field with a single Gaussian blob. This version
+! is corrected for a 2D (r-z) MPI decomposition and populates the
+! staggered azimuthal grid required by the pseudo-spectral method.
+!
+! [PARAMETERS]:
+! field    (OUT): The type(SCALAR) object to be initialized.
+! amplitude(IN) : The amplitude of the Gaussian.
+! r0       (IN) : The radial distance of the blob's center.
+! phi0     (IN) : The azimuthal angle (in radians) of the blob's center.
+! z0       (IN) : The vertical position of the blob's center.
+! wr       (IN) : The characteristic width of the blob in the xy-plane.
+! wz       (IN) : The characteristic width of the blob in the z-direction.
+!=======================================================================
+   implicit none
+   type(scalar), intent(out)    :: field
+   real(p8), intent(in)        :: amplitude, r0, phi0, z0, wr, wz
+
+   type(scalar) :: b_phys  ! Temporary field in physical space
+   integer      :: nn, mm, kk
+   real(p8)     :: r_val, z_val, x_val, y_val, xm2_val
+   real(p8)     :: phi_val_real, phi_val_imag
+   real(p8)     :: x_val_real, y_val_real, x_val_imag, y_val_imag
+   real(p8)     :: x0, y0
+   real(p8)     :: dist_sq_xy_real, dist_sq_xy_imag, dist_sq_z
+   real(p8)     :: real_part, imag_part
+   integer      :: local_nr, local_nx
+
+   ! blob's center
+   x0 = r0 * cos(phi0)
+   y0 = r0 * sin(phi0)
+
+   call allocate(b_phys, ppp_space)
+   b_phys%e = 0.d0
+
+   local_nr = size(b_phys%e, 1)
+   local_nx = size(b_phys%e, 3)
+
+   !$omp parallel do default(shared) &
+   !$omp private(nn, mm, kk, r_val, z_val, phi_val_real, phi_val_imag, &
+   !$omp x_val_real, y_val_real, x_val_imag, y_val_imag, &
+   !$omp dist_sq_xy_real, dist_sq_xy_imag, dist_sq_z, &
+   !$omp real_part, imag_part) collapse(3)
+   do kk = 1, local_nx
+      do mm = 1, ndimth
+         do nn = 1, local_nr
+            r_val   = tfm%r(nn + b_phys%inr)
+            z_val   = tfm%z(kk + b_phys%inx)
+            xm2_val = (1-tfm%x(nn + b_phys%inr))**2
+
+            ! --- Calculate value on the primary grid for the REAL part ---
+            phi_val_real = tfm%thr(mm)
+            x_val_real = r_val * cos(phi_val_real)
+            y_val_real = r_val * sin(phi_val_real)
+            dist_sq_xy_real = (x_val_real - x0)**2 + (y_val_real - y0)**2
+            dist_sq_z = (z_val - z0)**2
+            ! real_part = amplitude * exp(-(dist_sq_xy_real / wr**2) - (dist_sq_z / wz**2))
+            real_part = amplitude * exp(-(dist_sq_xy_real / wr**2)) / xm2_val
+
+            ! --- Calculate value on the staggered grid for the IMAGINARY part ---
+            phi_val_imag = tfm%thi(mm)
+            x_val_imag = r_val * cos(phi_val_imag)
+            y_val_imag = r_val * sin(phi_val_imag)
+            dist_sq_xy_imag = (x_val_imag - x0)**2 + (y_val_imag - y0)**2
+            ! imag_part = amplitude * exp(-(dist_sq_xy_imag / wr**2) - (dist_sq_z / wz**2))
+            imag_part = amplitude * exp(-(dist_sq_xy_imag / wr**2)) / xm2_val
+            
+            b_phys%e(nn, mm, kk) = cmplx(real_part, imag_part, p8)
+         end do
+      end do
+   end do
+   !$omp end parallel do
+
+   call chopdo(b_phys)
+   call toff(b_phys)
+   call allocate(field)
+   field = b_phys
+   call deallocate(b_phys)
+
+   field%ln = 0.0_p8
+   call chopdo(field)
+
+end subroutine gaussian_blob_divxm2
+
 subroutine inspect_b(field, nk)
 !=======================================================================
-implicit none
-type(scalar), intent(in) :: field
-integer, intent(in), optional :: nk
-integer :: iunit, nrad, nsave, i, nn
-character(len=256) :: fname
+! [USAGE]:
+! Save the field data of all radial modes for m = 0, and k = 1, nk
+!=======================================================================
+    implicit none
+    type(scalar), intent(in) :: field
+    integer, intent(in), optional :: nk
+    integer :: iunit, nrad, nsave, i, nn
+    character(len=256) :: fname
+    if ((field%INTH.eq.0).and.(field%INX.eq.0)) then
 
-if ((field%INTH.eq.0).and.(field%INX.eq.0)) then
+    nrad = size(field%e,1)
+    if (present(nk)) then
+        nsave = min(nk, size(field%e,3))
+    else
+        nsave = min(10, size(field%e,3))
+    end if
+    fname = trim(files%savedir)//'inspect_b_output.dat'
+    open(newunit=iunit, file=trim(fname), status='unknown', action='write', position='append')
+    write(iunit,*) TIM%T
+    do i = 1, nsave
+      !   write(iunit,'(I4,1x,*(ES14.6,","))') i, (abs(field%e(nn,1,i))**2, nn=1,nrad)
+        write(iunit,'(I4,1x,*(ES14.6,SP,ES14.6,"i",","))') i, (field%e(nn,1,i), nn=1,nrad)
+    end do
+    close(iunit)
 
-   nrad = size(field%e,1)
-   if (present(nk)) then
-      nsave = min(nk, size(field%e,3))
-   else
-      nsave = min(10, size(field%e,3))
-   end if
-   fname = trim(files%savedir)//'inspect_b_output.dat'
-   open(newunit=iunit, file=trim(fname), status='unknown', action='write', position='append')
-   write(iunit,*) TIM%T
-   do i = 1, nsave
-      write(iunit,'(I4,1x,*(ES14.6,","))') i, (abs(field%e(nn,1,i))**2, nn=1,nrad)
-   end do
-   close(iunit)
-
-end if
-call mpi_barrier(MPI_COMM_IVP,IERR)
-return
+    end if
+    call mpi_barrier(MPI_COMM_IVP,IERR)
+    return
 end subroutine inspect_b
 
-end program bsnsq_test
+end program uz_testing
