@@ -118,8 +118,8 @@ if (MPI_RANK.EQ.0) then
 endif
 
 allocate(prod_m(ntchop), prod_k(nxchop))
-prod_m = PRODCTM(a,b)
-prod_k = PRODCTK(a,b)
+prod_m = PRODCT_M(a,b)
+prod_k = PRODCT_K(a,b)
 if (MPI_RANK.EQ.0) then
     WRITE(*,*) 'Product (m) computed successfully.'
     WRITE(*,*) 'Product (m) = ', prod_m(:5)
