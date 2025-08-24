@@ -60,7 +60,7 @@ call diagnost(psi,chi)
 call PRINT_ENERGY_SPECTRUM(psi,chi,1)
 
 !> richardson step
-call rich(psi,chi,b,dpsi,dchi,db)
+call RICH_INCOMP_FE_BE(psi,chi,b,dpsi,dchi,db)
 
 !> 2nd diagnostic
 call diagnost(psi,chi)
@@ -76,7 +76,7 @@ files%n = 1
 do it=1,iii
 
    !> admam-bashforth
-   call adamsb(psi,chi,b,dpsi,dchi,db)
+   call STEP_INCOMP_AB_CN(psi,chi,b,dpsi,dchi,db)
    call HYPERV3(psi,chi,b)
    call diagnost(psi,chi)
 

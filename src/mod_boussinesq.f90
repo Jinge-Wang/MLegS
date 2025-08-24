@@ -28,9 +28,9 @@ TYPE(BOUSS_DATA),PUBLIC:: BSNSQ
 !======================== PUBLIC DECLARATION ===========================
 !=======================================================================
   ! TIME ADVANCEMENT SCHEMES RELATED
-  PUBLIC:: BOUSSINESQ_FULL, BOUSSINESQ_NONLIN
-  ! DIAGNOSTICS RELATED
-  PUBLIC:: CALC_ENERGY
+  PUBLIC:: CALC_BOUSSI_FORCE, CALC_BOUSSI_NONLIN
+  ! ENERGY ANALYSIS: KE, PE, ENERGY-EXCHANGE
+  PUBLIC:: CALC_BOUSSI_ENERGY
   ! LINEAR OPERATOR DIAGONALIZATION
   PUBLIC:: CALC_BOUSS_DIAG
 ! ======================================================================
@@ -100,7 +100,7 @@ SUBROUTINE CALC_BOUSS_DIAG(J,S,S_INV,ECHO)
 END SUBROUTINE CALC_BOUSS_DIAG
 !=======================================================================
 
-SUBROUTINE CALC_ENERGY(PSI,CHI,B,TIME,SAVEDIR)
+SUBROUTINE CALC_BOUSSI_ENERGY(PSI,CHI,B,TIME,SAVEDIR)
 !=======================================================================
 ! [USAGE]:
 ! CALCULATE KINETIC AND POTENTIAL ENERGY IN THE SYSTEM
@@ -185,7 +185,7 @@ IF (MPI_RANK.EQ.0) THEN
   CLOSE(667)
 ENDIF
 
-END SUBROUTINE CALC_ENERGY
+END SUBROUTINE CALC_BOUSSI_ENERGY
 !=======================================================================
 
 FUNCTION INTEG_K_FFF(F)
@@ -268,7 +268,7 @@ RETURN
 END FUNCTION INTEG_K_PFF
 !=======================================================================
 
-SUBROUTINE BOUSSINESQ_NONLIN(B, RUR, RUP, UZ, BN, ROR, ROP, OZ)
+SUBROUTINE CALC_BOUSSI_NONLIN(B, RUR, RUP, UZ, BN, ROR, ROP, OZ)
 !=======================================================================
 ! [USAGE]:
 ! CALCULATE THE NONLINEAR TERMS IN BOUSSINESQ APPROXIMATION:
@@ -293,7 +293,7 @@ TYPE(SCALAR):: RBR,RBP,BZ
 INTEGER:: NI,NJ,NK
 
 IF (B%SPACE .NE. FFF_SPACE) THEN
-  CALL MPRINT('BOUSSINESQ_NONLIN: B SHOULD BE IN FFF SPACE!')
+  CALL MPRINT('CALC_BOUSSI_NONLIN: B SHOULD BE IN FFF SPACE!')
   CALL MPI_ABORT(MPI_COMM_IVP, ERR_FLAGS%LEGOPERATOR, IERR)
 ENDIF
 
@@ -327,10 +327,10 @@ CALL DEALLOCATE(RBP)
 CALL DEALLOCATE(BZ)
 
 RETURN
-END SUBROUTINE BOUSSINESQ_NONLIN
+END SUBROUTINE CALC_BOUSSI_NONLIN
 ! ======================================================================
 
-SUBROUTINE BOUSSINESQ_FULL(PSI,CHI,B,PSIN,CHIN,BN)
+SUBROUTINE CALC_BOUSSI_FORCE(PSI,CHI,B,PSIN,CHIN,BN)
 !=======================================================================
 ! [USAGE]: 
 ! CALCULATE THE NONLINEAR AND LINEAR TERMS
@@ -421,7 +421,7 @@ CALL DEALLOCATE( W   )
 
 CALL MPI_BARRIER(MPI_COMM_IVP,IERR)
 RETURN
-END SUBROUTINE BOUSSINESQ_FULL
+END SUBROUTINE CALC_BOUSSI_FORCE
 ! ======================================================================
 
 END MODULE

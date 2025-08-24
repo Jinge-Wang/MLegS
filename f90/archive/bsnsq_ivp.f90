@@ -88,14 +88,14 @@ call diagnost(psi_tot,chi_tot)
 call PRINT_ENERGY_SPECTRUM(psi_tot,chi_tot,1)
 
 !> richardson step
-call rich(psi_tot,chi_tot,b_per,dpsi,dchi,db)
+call RICH_BOUSSI_FE_BE(psi_tot,chi_tot,b_per,dpsi,dchi,db)
 
 !> 2nd diagnostic
 call diagnost(psi_tot,chi_tot)
 ! call PRINT_ENERGY_SPECTRUM(psi_tot,chi_tot,1)
 
 !> save initial energy after Richardson step
-CALL CALC_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
+CALL CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
 
 !> startup
 !dpsi and dchi are initially empty, then they are assigned 
@@ -106,15 +106,15 @@ files%n = 1
 
 do it=1,iii
 
-   !> admam-bashforth
-   call ADAMSB(psi_tot,chi_tot,b_per,dpsi,dchi,db)
+   !> adams-bashforth
+   call STEP_BOUSSI_AB_CN(psi_tot,chi_tot,b_per,dpsi,dchi,db)
 
    !> hyperviscosity
    call HYPERV3(psi_tot,chi_tot,b_per)
    call DIAGNOST(psi_tot,chi_tot)
 
    !> save energy spectrum
-   CALL CALC_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
+   CALL CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
 
    !> output
    if ((files%t(files%n).le.tim%t) .AND. (file_save)) then

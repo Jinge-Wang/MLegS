@@ -50,15 +50,15 @@ endif
 
 !> first diagnostic
 call diagnost(psi_tot,chi_tot)
-call calc_energy(psi_tot,chi_tot,b_per,tim%t,files%savedir)
+call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
 call inspect_b(b_per,1)
 
 ! !> half step test
-! call etd_init(etd_e, etd_nl, tim%dt)
+! call CALC_BOUSSI_ETD_OP(etd_e, etd_nl, tim%dt)
 ! etd_nl = 0.d0
-! call etd1fe(psi_tot, chi_tot, b_per, etd_e, etd_nl)
+! call STEP_BOUSSI_ETDFE_BE(psi_tot, chi_tot, b_per, etd_e, etd_nl)
 ! tim%t = tim%t + tim%dt
-! call calc_energy(psi_tot,chi_tot,b_per,tim%t,files%savedir)
+! call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
 ! call inspect_b(b_per,1)
 ! if (mpi_rank.eq.0) then
 !    write(*,*) 'b_per%ln = ', b_per%ln
@@ -69,9 +69,9 @@ call inspect_b(b_per,1)
 ! call anynan(psi_tot,'psi_tot')
 ! call anynan(chi_tot,'chi_tot')
 
-! call etd1fe(psi_tot, chi_tot, b_per, etd_e, etd_nl)
+! call STEP_BOUSSI_ETDFE_BE(psi_tot, chi_tot, b_per, etd_e, etd_nl)
 ! tim%t = tim%t + tim%dt
-! call calc_energy(psi_tot,chi_tot,b_per,tim%t,files%savedir)
+! call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
 ! call inspect_b(b_per,1)
 
 ! call mprint('half step completed')
@@ -83,7 +83,7 @@ call inspect_b(b_per,1)
 !> initialize solver
 CALL PT_SOLVER%INITIALIZE(psi_tot, chi_tot, b_per)
 call diagnost(psi_tot,chi_tot)
-CALL CALC_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
+CALL CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
 
 !> startup
 iii = tim%limit/tim%dt

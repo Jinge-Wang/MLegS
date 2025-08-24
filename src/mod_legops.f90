@@ -67,7 +67,7 @@ PUBLIC:: NONLIN
 ! VELOCITY(FFF) TO VORTICITY(PFF)
 PUBLIC:: VEL2VOR
 ! CHECK MAXIMUM ELEMENT OF VELOCITY FIELDS
-PUBLIC:: MAX_ELEMENT
+PUBLIC:: VELMAX
 CONTAINS
 !=======================================================================
 !============================ SUBROUTINES ==============================
@@ -2623,7 +2623,7 @@ RETURN
 END SUBROUTINE VEL2VOR      
 !=======================================================================
 
-SUBROUTINE MAX_ELEMENT(RUR, RUP, UZ)
+SUBROUTINE VELMAX(RUR, RUP, UZ)
 !=======================================================================
 ! [USAGE]:
 ! FIND THE MAXIMUM ELEMENTS IN UR, UP, UZ AND THEIR LOC
@@ -2723,7 +2723,7 @@ IF (UZMAX > THRESHOLD) THEN
 END IF
 
 CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
-END SUBROUTINE MAX_ELEMENT
+END SUBROUTINE VELMAX
 !=======================================================================
 
 FUNCTION Z2LN(UZ)

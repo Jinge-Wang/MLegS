@@ -74,7 +74,7 @@ time_start = mpi_wtime()
 !dpsi and dchi are initially empty, then they are assigned 
 !the nonlinear part of the first step
 call diagnost(psi,chi)
-call rich(psi,chi,dpsi,dchi)
+call RICH_INCOMP_FE_BE(psi,chi,dpsi,dchi)
 call diagnost(psi,chi)
 
 psi_o = psi
@@ -94,7 +94,7 @@ do it=1,iii
    end if
    
    !> integrate - uxw
-   call adamsb(psi,chi,dpsi,dchi)
+   call STEP_INCOMP_AB_CN(psi,chi,dpsi,dchi)
    call diagnost(psi,chi)
 
    !> re-adjust psi/chi copy
@@ -127,7 +127,7 @@ do it=1,iii
     !> freestream adjust
     if(adv%sw.eq.1 .and. mod(it,adv%int).eq.0) then
         call freeadj
-        call rich(psi,chi,dpsi,dchi)
+        call RICH_INCOMP_FE_BE(psi,chi,dpsi,dchi)
         call diagnost(psi,chi)
     endif
          

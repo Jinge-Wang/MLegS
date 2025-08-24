@@ -74,7 +74,7 @@ vel_o = MAXVELP(psi_o,chi_o)
 
 !dpsi and dchi are initially empty, then they are assigned 
 !the nonlinear part of the first step
-! call rich(psi,chi,dpsi,dchi)
+! call RICH_INCOMP_FE_BE(psi,chi,dpsi,dchi)
 call RICH_RE(psi,chi,dpsi,dchi,psio,chio,psi_o,chi_o,vel_o)
 call diagnost(psi,chi)
 
@@ -92,7 +92,7 @@ do it=1,iii
     end if
     
     !> integrate
-    call adamsb(psi,chi,dpsi,dchi)
+    call STEP_INCOMP_AB_CN(psi,chi,dpsi,dchi)
     call diagnost(psi,chi)
     
     !> monitor eigenmodes
@@ -110,14 +110,14 @@ do it=1,iii
     ! !> freestream adjust
     ! if(adv%sw.eq.1 .and. mod(it,adv%int).eq.0) then
     !     call freeadj
-    !     call rich(psi,chi,dpsi,dchi)
+    !     call RICH_INCOMP_FE_BE(psi,chi,dpsi,dchi)
     !     call diagnost(psi,chi)
     ! endif
     
     !> vorticity removal
     if(rmv%sw.ne.0 .and. mod(it,rmv%int).eq.0) then
         call remove(psi,chi)
-        call rich(psi,chi,dpsi,dchi)
+        call RICH_INCOMP_FE_BE(psi,chi,dpsi,dchi)
         call diagnost(psi,chi)
     endif
     

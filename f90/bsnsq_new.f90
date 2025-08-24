@@ -77,12 +77,12 @@ endif
 
 ! CHECK INITIAL CONDITION
 CALL DIAGNOST(psi_tot,chi_tot)
-CALL CALC_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
+CALL CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
 
 ! INITIALIZE SOLVER
 CALL PT_SOLVER%INITIALIZE(psi_tot, chi_tot, b_per)
 CALL DIAGNOST(psi_tot,chi_tot)
-CALL CALC_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
+CALL CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
 
 iii = tim%limit/tim%dt
 files%n = 1

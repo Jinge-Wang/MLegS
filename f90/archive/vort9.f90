@@ -108,7 +108,7 @@ call diagnost(psi,chi)
 call PRINT_ENERGY_SPECTRUM(psi,chi,1)
 
 !> richardson step
-call rich(psi,chi,dpsi,dchi)
+call RICH_INCOMP_FE_BE(psi,chi,dpsi,dchi)
 
 !> 2nd diagnostic
 call diagnost(psi,chi)
@@ -131,7 +131,7 @@ do it=1,iii
 
    !> admam-bashforth - degen renormalized
    !> psi(n+1),chi(n+1) = factor * |psi(n),chi(n)|_degen + [1.5*|psiN(n),chiN(n)|_degen - 0.5*|psiN(n-1),chiN(n-1)|_degen]
-   call adamsb(psi,chi,dpsi,dchi)
+   call STEP_INCOMP_AB_CN(psi,chi,dpsi,dchi)
    call HYPERV3(psi,chi)
    call diagnost(psi,chi)
 
