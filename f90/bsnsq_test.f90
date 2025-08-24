@@ -34,7 +34,7 @@ call setup_grid(files%savedir)
 ! call allocate(b_per); call random_noise(b_per, is_save = .true.)
 call allocate(psi_tot); psi_tot%e = 0.d0
 call allocate(chi_tot); chi_tot%e = 0.d0
-call allocate(b_per); call gaussian_blob(b_per, 1.0d-3, 0.5d0, 0.0d0, 0.5*zlen, 1.d0, 0.1*zlen)
+call allocate(b_per); call gaussian_blob(b_per, 1.0d-3, 0.5d0, PI / 4.d0, 0.5*zlen, 1.d0, 0.1*zlen)
 
 ! set up monitoring modes
 do iii = 1,size(monitor_mk,1)
@@ -549,16 +549,14 @@ subroutine gaussian_blob(field, amplitude, r0, phi0, z0, wr, wz)
             y_val_real = r_val * sin(phi_val_real)
             dist_sq_xy_real = (x_val_real - x0)**2 + (y_val_real - y0)**2
             dist_sq_z = (z_val - z0)**2
-            ! real_part = amplitude * exp(-(dist_sq_xy_real / wr**2) - (dist_sq_z / wz**2))
-            real_part = amplitude * exp(-(dist_sq_xy_real / wr**2))
+            real_part = amplitude * exp(-(dist_sq_xy_real / wr**2) - (dist_sq_z / wz**2))
 
             ! --- Calculate value on the staggered grid for the IMAGINARY part ---
             phi_val_imag = tfm%thi(mm)
             x_val_imag = r_val * cos(phi_val_imag)
             y_val_imag = r_val * sin(phi_val_imag)
             dist_sq_xy_imag = (x_val_imag - x0)**2 + (y_val_imag - y0)**2
-            ! imag_part = amplitude * exp(-(dist_sq_xy_imag / wr**2) - (dist_sq_z / wz**2))
-            imag_part = amplitude * exp(-(dist_sq_xy_imag / wr**2))
+            imag_part = amplitude * exp(-(dist_sq_xy_imag / wr**2) - (dist_sq_z / wz**2))
             
             b_phys%e(nn, mm, kk) = cmplx(real_part, imag_part, p8)
          end do
