@@ -22,7 +22,7 @@ else ifeq ($(UNAME_S),Darwin)
 	FC = mpifort
 	FFLG = -fdefault-real-8 -fdefault-double-8 -O3 -ffree-line-length-none
 	FINC = -I$(shell brew --prefix fftw)/include -I$(shell brew --prefix openblas)/include
-	FLIB = -L$(shell brew --prefix fftw)/lib -lfftw3 -L$(shell brew --prefix openblas)/lib -lopenblas
+	FLIB = -L$(shell brew --prefix fftw)/lib -lfftw3 -L$(shell brew --prefix openblas)/lib -lopenblas -lgcc
 	MODULE_FLAG = -J
 	# Set OpenMP flags
 	FFLG += -fopenmp

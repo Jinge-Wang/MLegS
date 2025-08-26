@@ -146,8 +146,7 @@ subroutine random_noise(a, noise_level, is_save)
    integer     :: nnn, mmm, kkk, k_ind
    real(p8)    :: global_k, global_m, kolm_factor
    integer     :: seed_size, clock, base_seed
-   integer, allocatable :: seed(:), saved_seed(:)
-   integer     :: deterministic_seed(1)
+   integer, allocatable :: seed(:), saved_seed(:), deterministic_seed(:)
 
    if (present(noise_level)) then
       noise_amplitude = noise_level
@@ -161,7 +160,7 @@ subroutine random_noise(a, noise_level, is_save)
    call mpi_barrier(MPI_COMM_IVP,IERR)
    ! for all m>0 modes
    call random_seed(size=seed_size)
-   allocate(seed(seed_size), saved_seed(seed_size))
+   allocate(seed(seed_size), saved_seed(seed_size), deterministic_seed(seed_size))
    call system_clock(count=clock)
    seed = clock + 37 * MPI_RANK ! Unique seed per rank
    call random_seed(put=seed)
@@ -179,6 +178,7 @@ subroutine random_noise(a, noise_level, is_save)
 
                ! Create a deterministic seed from the global axial mode number ONLY.
                ! This seed is identical for the rank owning (+k) and the rank owning (-k).
+               deterministic_seed = 0
                deterministic_seed(1) = base_seed + 1000 * abs(nint(global_k * 100.0_p8))
                call random_seed(put=deterministic_seed)
                do nnn = 1, size(a%e, 1)
@@ -249,7 +249,7 @@ subroutine random_noise(a, noise_level, is_save)
 
    end do ! m loop
 
-   deallocate(seed, saved_seed)
+   deallocate(seed, saved_seed, deterministic_seed)
     
    ! ! save kolmogorov factor for each rank
    ! if (present(is_save)) then
