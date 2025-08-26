@@ -1416,7 +1416,7 @@ CONTAINS
       RETURN
       END FUNCTION MTRXC
 !=======================================================================
-FUNCTION TRIBKSB1(AMAT, A) RESULT(B)
+SUBROUTINE TRIBKSB1(AMAT, A)
 !=======================================================================
 ! [USAGE]:
 ! SOLVES A TRIDIAGONAL SYSTEM AMAT*B = A USING THE THOMAS ALGORITHM.
@@ -1431,13 +1431,12 @@ FUNCTION TRIBKSB1(AMAT, A) RESULT(B)
 !=======================================================================
    IMPLICIT NONE
    REAL(P8), DIMENSION(:,:), INTENT(IN)    :: AMAT
-   COMPLEX(P8), DIMENSION(:), INTENT(IN)   :: A
-   COMPLEX(P8), DIMENSION(SIZE(A))    :: B
+   COMPLEX(P8), DIMENSION(:), INTENT(INOUT)   :: A
 
    INTEGER :: NI, NN
    REAL(P8) :: M_INV
 
-   COMPLEX(P8), DIMENSION(SIZE(A)) :: D_PRIME
+   COMPLEX(P8), DIMENSION(SIZE(A)) :: B, D_PRIME
    REAL(P8), DIMENSION(SIZE(A))    :: C_PRIME
 
    NI = SIZE(A)
@@ -1469,8 +1468,10 @@ FUNCTION TRIBKSB1(AMAT, A) RESULT(B)
       B(NN) = D_PRIME(NN) - C_PRIME(NN) * B(NN+1)
    ENDDO
 
+   A = B
+
    RETURN
-END FUNCTION TRIBKSB1
+END SUBROUTINE TRIBKSB1
 !=======================================================================
 
 END MODULE MOD_BANDMAT
