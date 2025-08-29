@@ -43,12 +43,12 @@ Subroutines for the incompressible Navier-Stokes equations are also included.
 
 ### Governing Equations
 
-The code solves the incompressible Boussinesq equations for a fluid with constant rotation $\mathbf{\Omega} = \Omega \mathbf{\hat{z}}$ and stable stratification characterized by a constant Brunt-Väisälä frequency $N_{BV}$. The equations for the total velocity $\mathbf{u}$, pressure $p$, and buoyancy perturbation $b$ are:
+The code solves the incompressible Boussinesq equations for a fluid with constant rotation $\mathbf{\Omega} = \Omega \mathbf{\hat{z}}$ and stable stratification characterized by a constant Brunt-Väisälä frequency $\bar{N}$. The equations for the total velocity $\mathbf{u}$, pressure $p$, and buoyancy perturbation $b$ are:
 
 ```math
 \begin{aligned}
 \frac{\partial \mathbf{u}}{\partial t} + (\mathbf{u} \cdot \nabla)\mathbf{u} &= -\nabla p - b\mathbf{\hat{z}} - 2\Omega (\mathbf{\hat{z}} \times \mathbf{u}) + \nu \nabla^2 \mathbf{u} - \nu_p(-\nabla^2)^P \mathbf{u} \\
-\frac{\partial b}{\partial t} + (\mathbf{u} \cdot \nabla)b &= N_{BV}^2 (\mathbf{u} \cdot \mathbf{\hat{z}}) + \kappa \nabla^2 b - \kappa_p(-\nabla^2)^P b \\
+\frac{\partial b}{\partial t} + (\mathbf{u} \cdot \nabla)b &= \bar{N}^2 (\mathbf{u} \cdot \mathbf{\hat{z}}) + \kappa \nabla^2 b - \kappa_p(-\nabla^2)^P b \\
 \nabla \cdot \mathbf{u} &= 0
 \end{aligned}
 ```
@@ -66,10 +66,10 @@ where:
 The code employs a pseudo-spectral method based on [Matsushima & Marcus (1997)](https://doi.org/10.1006/jcph.1997.5804).
 
 *   **Poloidal-Toroidal Decomposition**: To satisfy the incompressibility condition ($\nabla \cdot \mathbf{u} = 0$) automatically, the velocity field is decomposed into poloidal and toroidal components using scalar potentials $\chi$ (poloidal) and $\psi$ (toroidal):
-    ```math
-    \mathbf{u} = \nabla \times \nabla \times (\chi \mathbf{\hat{z}}) + \nabla \times (\psi \mathbf{\hat{z}})
-    ```
-    The evolution equations are solved for $\chi$, $\psi$, and the buoyancy $b$. Note that, the Poloidal-Toroidal projection of a vector field essentially removes any contribution from scalar potentials, and the governing equations become simplified. For example, the projection of $(\mathbf{u} \cdot \nabla)\mathbf{u}$ becomes $\boldsymbol{\omega} \times \mathbf{u}$, where $\boldsymbol{\omega}$ is the vorticity vector, and all terms related to pressure as well as centrifugal acceleration vanish.
+```math
+\mathbf{u} = \nabla \times \nabla \times (\chi \mathbf{\hat{z}}) + \nabla \times (\psi \mathbf{\hat{z}})
+```
+    The evolution equations are solved for $\chi$, $\psi$, and the buoyancy $b$. Note that, the Poloidal-Toroidal projection of a vector field essentially removes any contribution from scalar potentials, and the governing equations become simplified. For example, the nonlinear force term, which is the projection of $-(\mathbf{u} \cdot \nabla)\mathbf{u}$, is calculated as the projection of $\mathbf{u} \times \boldsymbol{\omega}$, where $\boldsymbol{\omega}$ is the vorticity vector. All terms related to pressure as well as centrifugal acceleration vanish after projection.
 
 *   **Spectral Basis**:
     *   **Azimuthal ($\theta$) and Axial ($z$)**: The fields are represented by Fourier series, which is optimal for periodic boundary conditions in these directions.
@@ -82,14 +82,14 @@ The code employs a pseudo-spectral method based on [Matsushima & Marcus (1997)](
 
 The code provides two main time-advancement schemes, controlled by the `BSNSQ%ADAMS` flag.
 
-*   **Scheme 1: Adams-Bashforth Crank-Nicolson (AB2-CN)** (when `BSNSQ%ADAMS = 1`)
+*   **Scheme 1: Adams-Bashforth Crank-Nicolson (AB2-CN)** (when `BSNSQ%ADAMS` is set to `1`)
     This is a classic semi-implicit scheme.
     *   **Nonlinear and Linear Wave Terms**: The advection term and the linear Coriolis and buoyancy terms are treated explicitly with the second-order Adams-Bashforth method.
     *   **Diffusion Terms**: The viscosity and diffusivity terms are treated implicitly with the second-order, unconditionally stable Crank-Nicolson method to avoid severe time-step restrictions at high resolution. This is implemented in `CALC_BOUSSI_VISC_CN`.
 
-*   **Scheme 2: Exponential Time Differencing (ETD2)** (when `BSNSQ%ADAMS = .FALSE.`)
+*   **Scheme 2: Exponential Time Differencing (ETD2)** (when `BSNSQ%ADAMS` is set to `0`)
     This is a more advanced scheme that is particularly effective when stiff linear terms (like fast waves) are present.
-    *   **Linear Wave Terms**: The fast linear wave dynamics due to rotation (inertial waves) and stratification (internal gravity waves) are solved exactly using an exponential integrator. The core of this method is in `CALC_BOUSS_DIAG`, which diagonalizes the linear operator `L`, and `CALC_BOUSSI_ETD_OP`, which pre-computes the exponential and related matrix operators.
+    *   **Linear Wave Terms**: The fast linear wave dynamics due to rotation (inertial waves) and stratification (internal gravity waves) are solved exactly using an exponential integrator. The core of this method is in `CALC_BOUSS_DIAG`, which diagonalizes the linear operator $\mathbb{L}$, and `CALC_BOUSSI_ETD_OP`, which pre-computes the exponential and related matrix operators.
     *   **Nonlinear Terms**: The nonlinear terms are handled explicitly using a second-order Adams-Bashforth-like formula (ETD2AB).
     *   **Diffusion Terms**: As with the AB2-CN scheme, diffusion is handled separately and implicitly using the Crank-Nicolson method (`CALC_BOUSSI_VISC_CN`).
 
@@ -111,18 +111,37 @@ The simulation is driven by a main program (e.g., `bsnsq_test.f90`) that uses th
 
 ### Analysis and Potential Issues
 
-*   **Available Potential Energy Calculation**: In `CALC_BOUSSI_ENERGY`, the potential energy calculated is the available potential energy (APE) defined as $\int B^2 dV / (2N_{BV}^2)$.
+*   **Available Potential Energy Calculation**: In `CALC_BOUSSI_ENERGY`, the potential energy calculated is the available potential energy (APE) defined as $\int B^2 dV / (2\bar{N}^2)$.
 
 *   **Hyperviscosity Implementation**: The code contains two methods for applying hyperviscosity: a standard implicit solver (`HYPERV`) and a more modern spectral filter (`HYPERV3`) that offers better scale selectivity.
 
 *   **Legacy Code**: The `mod_march` module contains time-stepping subroutines for the incompressible model (`STEP_INCOMP_AB_CN`, `RICH_INCOMP_FE_BE`), but they have NOT been ported to the new `SOLVER_T` wrapper.
 
-## Author Information
+## Project History and Acknowledgments
 
-*   **Name**: Jinge Wang
-*   **Affiliation**: University of California, Berkeley
-*   **Email**: [jinge@berkeley.edu](mailto:jinge@berkeley.edu)
-*   **LinkedIn**: [jinge-wang-cfd](https://www.linkedin.com/in/jinge-wang-cfd/)
+This project is built upon a rich history of academic code development. The project's lineage is as follows:
 
-*   **Name**: Sangjoon Lee
-*   **Affiliation**: Stanford University
+1.  **The Foundation**: The original serial code, based on the spectral method for cylindrical geometries by Matsushima & Marcus (1997), was developed in the Computational Fluid Dynamics lab at UC Berkeley under the guidance of Prof. Philip Marcus.
+
+2.  **Modernization**: Dr. Sangjoon Lee undertook the significant task of modernizing this legacy Fortran code. He refactored the codebase, verified its numerical accuracy, and established a robust, single-node version that serves as the foundation to any later developments.
+
+3.  **Parallelization* and Extension***: Jinge Wang parallelized the modernized solver to enable large-scale simulations on distributed-memory supercomputers. That is later modularized by Sangjoon Lee and becomes the currently publicized foundational spectral library, which is available on our [GitHub repository](https://github.com/UCBCFD/MLegS). This project extends the functionality of the parallelized solver by adding Boussinesq physics, advanced time-stepping schemes (ETD2), a Python-based analysis environment, and a streamlined deployment system. Other improvements include MacOS and Linux auto-detect and compiling and hybrid OpenMP-MPI parallelization.
+
+## Authors and Contributions
+
+### Jinge Wang
+- **Affiliation:** University of California, Berkeley
+- **Email:** [jinge@berkeley.edu](mailto:jinge@berkeley.edu)
+- **LinkedIn:** [jinge-wang-cfd](https://www.linkedin.com/in/jinge-wang-cfd/)
+- **Contributions:**
+  - Parallelization.
+  - 3D Boussinesq equations and Exponential Time Differencing (ETD2) scheme.
+  - Python analysis interface, Jupyter notebooks, and streamlined setup and data analysis.
+
+### Sangjoon Lee
+- **Affiliation:** Stanford University
+- **Email:** [sjoonl@stanford.edu](mailto:sjoonl@stanford.edu)
+- **LinkedIn:** [sangjoonlee93](https://www.linkedin.com/in/sangjoonlee93/)
+- **Contributions:**
+  - Modernization of the original incompressible Navier-Stokes solver.
+  - Expansion of the original spectral library.
