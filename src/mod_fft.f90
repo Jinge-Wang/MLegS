@@ -373,25 +373,27 @@ SUBROUTINE COLLOC_INFO(SAVEDIR)
     IMPLICIT NONE
     CHARACTER(LEN=*) :: SAVEDIR
 
-    ! SAVE THE RADIAL COLLOCATION POINTS (R)
-    CALL MSAVE(TFM%R, TRIM(ADJUSTL(SAVEDIR))//&
-    'r_colloc_pts.dat')
+    IF (MPI_RANK.EQ.0) THEN
+        ! SAVE THE RADIAL COLLOCATION POINTS (R)
+        CALL MSAVE(TFM%R, TRIM(ADJUSTL(SAVEDIR))//&
+            'r_colloc_pts.dat')
 
-    ! SAVE THE X COLLOCATION POINTS (X)
-    CALL MSAVE(TFM%X, TRIM(ADJUSTL(SAVEDIR))//&
-        'x_colloc_pts.dat')
+        ! SAVE THE X COLLOCATION POINTS (X)
+        CALL MSAVE(TFM%X, TRIM(ADJUSTL(SAVEDIR))//&
+            'x_colloc_pts.dat')
 
-    ! SAVE THE GAUSS_LEGENDRE WEIGHTS (W)
-    CALL MSAVE(TFM%W, TRIM(ADJUSTL(SAVEDIR))//&
-        'gau_leg_weights.dat')
+        ! SAVE THE GAUSS_LEGENDRE WEIGHTS (W)
+        CALL MSAVE(TFM%W, TRIM(ADJUSTL(SAVEDIR))//&
+            'gau_leg_weights.dat')
 
-    ! SAVE THE AZIMUTHAL COLLOCATION POINTS (THETA)
-    CALL MSAVE(TFM%TH, TRIM(ADJUSTL(SAVEDIR))//&
-        't_colloc_pts.dat')
+        ! SAVE THE AZIMUTHAL COLLOCATION POINTS (THETA)
+        CALL MSAVE(TFM%TH, TRIM(ADJUSTL(SAVEDIR))//&
+            't_colloc_pts.dat')
 
-    ! SAVE THE AXIAL COLLOCATION POINTS (Z)
-    CALL MSAVE(TFM%Z, TRIM(ADJUSTL(SAVEDIR))//&
-        'z_colloc_pts.dat')
+        ! SAVE THE AXIAL COLLOCATION POINTS (Z)
+        CALL MSAVE(TFM%Z, TRIM(ADJUSTL(SAVEDIR))//&
+            'z_colloc_pts.dat')
+    ENDIF
 
     RETURN
 END SUBROUTINE COLLOC_INFO
@@ -564,7 +566,9 @@ SUBROUTINE PRINT_MPI_STRATEGY(SAVEDIR)
     ENDDO
 
     ! Print transformation flow (only from rank 0)
+    ! And save collocation info
     IF (MPI_RANK == 0) THEN
+
         OPEN(UNIT=MPI_INFO_UNIT, FILE=TRIM(MPI_INFO_FILENAME), STATUS='OLD', &
             POSITION='APPEND', FORM='FORMATTED', IOSTAT=STATUS)
         
@@ -587,6 +591,9 @@ SUBROUTINE PRINT_MPI_STRATEGY(SAVEDIR)
             WRITE(MPI_INFO_UNIT,*) '=========================================================='
             CLOSE(MPI_INFO_UNIT)
         ENDIF
+
+        CALL COLLOC_INFO(SAVEDIR)
+
     ENDIF
 
     RETURN

@@ -3,7 +3,7 @@
 
 #SBATCH -A phy220056          # Allocation name
 #SBATCH --nodes=1             # Total # of nodes
-#SBATCH --ntasks-per-node=16  # Total # of MPI tasks per node
+#SBATCH --ntasks-per-node=32  # Total # of MPI tasks per node
 #SBATCH --cpus-per-task=2
 #SBATCH --time=00:15:00
 #SBATCH -J bsnsq_test
@@ -26,6 +26,7 @@ echo "Running bsnsq_test with $SLURM_NTASKS MPI tasks"
 
 srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/bsnsq_test_exec
 # srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/uz_test_exec
+# srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/bsnsq_critical_exec
 
 # PAST TESTS:
 # (PASSED) srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/divxm_test_exec

@@ -491,7 +491,6 @@ CONTAINS
       REAL(P8):: R,TH,Z
       REAL(P8):: GAUS
       
-      !REAL(P8)::X,Y,R2,AK,R0,RK,DP,RP,XC,YC !Variable AK was used in parental scope
       REAL(P8)::X,Y,R2,AK1,R0,RK,DP,RP,XC,YC 
 
       AK1 = 2*PI*GAUSDATA%K /ZLEN                                        !DEFAULT K=1; 2*PI/ZLEN

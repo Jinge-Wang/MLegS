@@ -100,7 +100,7 @@ rur_test%e = 0.d0
 rup_test%e = 0.d0
 
 call allocate(w)
-call project(rur_test,rup_test,uz_test,psi_tot,w)
+call project(rur_test,rup_test,uz_test,psi_tot,w,.TRUE.)
 call idel2(w,chi_tot,chiln)
 if (mpi_rank .eq. 0) write(*,*) 'idel2: chi_tot%ln = ', chi_tot%ln
 call chopset(3)

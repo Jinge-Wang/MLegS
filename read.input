@@ -8,8 +8,7 @@ CHOPS
 # ---------------------------------------------------------------------
 ELL
 #    ELL -----------------------------------------------(MAP PARAMETER)
-      3.
-#     4.
+      4.
 # ---------------------------------------------------------------------
 ZLEN
 #   ZLEN ------------------------(PERIOD LENGTH IN THE AXIAL DIRECTION)
@@ -33,10 +32,11 @@ MKLINK
 # ---------------------------------------------------------------------
 VORTEXPAIR
 #      N ------------------------------------------(NUMBER OF VORTICES)
-       1
+       2
 # ---------------------------------------------------------------------
 #      X       Y       Q       H       B -(X, Y, Q, B AND H FOR VORTEX)
        0.      0.      1.      0.      1.
+       1.      0.      0.1     0.1     1.
 # ---------------------------------------------------------------------
 VORTEXPAIR_NOISE
 #  NOISE -----------------(1: RANDOM NOISE CREATED INTO INITIAL VORTEX)
@@ -45,14 +45,16 @@ VORTEXPAIR_NOISE
 VORTEXPAIR_CROW
 #     DX      DY      DP       K -(DELTAX, DELTAY, DELTAPHASE & WAVE #)
       0.      0.      0.       1
+      0.      0.      0.       1
 # ---------------------------------------------------------------------
 VORTEXPAIR_SECTION
 #      R      DR      RP      RK ---(CORER, DELTAR, DELTAPHASE & WAVE#)
       1.      0.      0.       1
+      1.      0.      0.       1
 # ---------------------------------------------------------------------
 DT
 #     DT   LIMIT ------------------------------------(DELTAT & ENDTIME)
-     0.005  10.0
+     0.005  150.0
 # ---------------------------------------------------------------------
 TIME_INTEG
 # SCHEME -----------------(TIME ADVANCEMENT SCHEME !!CURRENTLY DUMMY!!)
@@ -60,7 +62,7 @@ TIME_INTEG
 # ---------------------------------------------------------------------
 VISCOSITY
 #     SW      NU     NUP       P --(SWITCH, VISCOSITY, HYPERV, HELMPOW)
-       0    0.00001  0.000000001    6
+       1    0.000001  0.000001    6
 # ---------------------------------------------------------------------
 NUP_ADJUST
 #  ADJSW  ADJINT -(HYPERV ADJUSTMENT SWITCH & FOR EVERY 'ADJINT' STEPS)
@@ -68,7 +70,7 @@ NUP_ADJUST
 # ---------------------------------------------------------------------
 BOUSSINESQ
 #     BV0    OMEGA    KAPPA   KAPPAP    ABSW ------(USE A-B FOR LINEAR)
-      1.0     1.0      0.0      0.0      0
+      1.0     1.0   0.000001    0.0      0
 # ---------------------------------------------------------------------
 FREESTREAM
 #     SW      UX      UY      UZ     INT -(SWITCH, UX, UY, UZ, # STEPS)
@@ -111,16 +113,30 @@ BI
 # ---------------------------------------------------------------------
 OUTPUTS
 #     NE --------------------------(NUMBER OF SNAPSHOTS OF PSI AND CHI)
-       1
+      15
 # ---------------------------------------------------------------------
-#      T          PSIX_F          CHIX_F ---(SNAPTIME, PSI(T) & CHI(T))
+#      T         PSIX_F         CHIX_F         BX_F --(SNAPTIME, FILES)
 # (NE LINES. THE LAST SNAPSHOT TIME DETERMINES THE PROGRAM TERMINATION)
-       10.0     psi10.dat        chi10.dat      
+      10.0       psi10.dat       chi10.dat       b10.dat
+      20.0       psi20.dat       chi20.dat       b20.dat
+      30.0       psi30.dat       chi30.dat       b30.dat
+      40.0       psi40.dat       chi40.dat       b40.dat
+      50.0       psi50.dat       chi50.dat       b50.dat
+      60.0       psi60.dat       chi60.dat       b60.dat
+      70.0       psi70.dat       chi70.dat       b70.dat
+      80.0       psi80.dat       chi80.dat       b80.dat
+      90.0       psi90.dat       chi90.dat       b90.dat
+     100.0      psi100.dat      chi100.dat      b100.dat
+     110.0      psi110.dat      chi110.dat      b110.dat
+     120.0      psi120.dat      chi120.dat      b120.dat
+     130.0      psi130.dat      chi130.dat      b130.dat
+     140.0      psi140.dat      chi140.dat      b140.dat
+     150.0      psi150.dat      chi150.dat      b150.dat
 # ---------------------------------------------------------------------
 DIAGNOST
 #    IT1     IT2 ----(PERFORM DIAGNOSIS FOR EVERY 'IT1' OR 'IT2' STEPS)
 #                             (!! IT2 IS CURRENTLY A DUMMY VARIABLE !!)
-      1      40
+       1      40
 # ---------------------------------------------------------------------
 LINEAR
 #     MM      KK ------------------(LINEAR TERMS !! CURRENTLY DUMMY !!)

@@ -22,19 +22,25 @@ implicit none
 ! -------------------------
 integer:: iii,it
 type(scalar):: psi_tot,chi_tot,b_per
-type(scalar):: uz_test, rur_test, rup_test
 complex(p8), dimension(4,4):: ETD_E, ETD_NL
 
 call setup_environment('noecho')
 call setup_grid(files%savedir)
 
 ! initialize fields
+! a. random noise
 ! call allocate(psi_tot); call random_noise(psi_tot)
 ! call allocate(chi_tot); call random_noise(chi_tot)
 ! call allocate(b_per); call random_noise(b_per, is_save = .true.)
-call allocate(psi_tot); psi_tot%e = 0.d0
-call allocate(chi_tot); chi_tot%e = 0.d0
-call allocate(b_per); call gaussian_blob(b_per, 1.0d-3, 0.5d0, PI / 4.d0, 0.5*zlen, 1.d0, 0.1*zlen)
+
+! b. gaussian density blob
+! call allocate(psi_tot); psi_tot%e = 0.d0
+! call allocate(chi_tot); chi_tot%e = 0.d0
+! call allocate(b_per); call gaussian_blob(b_per, 1.0d-3, 0.5d0, PI / 4.d0, 0.5*zlen, 1.d0, 0.1*zlen)
+
+! c. gaussian vortex
+call calc_qvortex(psi_tot, chi_tot)
+call allocate(b_per); b_per%e = 0.d0
 
 ! set up monitoring modes
 do iii = 1,size(monitor_mk,1)
@@ -51,15 +57,22 @@ endif
 !> first diagnostic
 call diagnost(psi_tot,chi_tot)
 call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
-call inspect_b(b_per,1)
+call inspect(psi_tot,1)
+call inspect(chi_tot,1)
+call inspect(b_per,1)
 
+! ======================================================================
 ! !> half step test
+! !> initialize etd operators
 ! call CALC_BOUSSI_ETD_OP(etd_e, etd_nl, tim%dt)
-! etd_nl = 0.d0
-! call STEP_BOUSSI_ETDFE_BE(psi_tot, chi_tot, b_per, etd_e, etd_nl)
+
+! !> first half step
 ! tim%t = tim%t + tim%dt
+! call STEP_BOUSSI_ETDFE_BE(psi_tot, chi_tot, b_per, etd_e, etd_nl)
 ! call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
-! call inspect_b(b_per,1)
+! call inspect(psi_tot,1)
+! call inspect(chi_tot,1)
+! call inspect(b_per,1)
 ! if (mpi_rank.eq.0) then
 !    write(*,*) 'b_per%ln = ', b_per%ln
 !    write(*,*) 'psi_tot%ln = ', psi_tot%ln
@@ -69,17 +82,31 @@ call inspect_b(b_per,1)
 ! call anynan(psi_tot,'psi_tot')
 ! call anynan(chi_tot,'chi_tot')
 
-! call STEP_BOUSSI_ETDFE_BE(psi_tot, chi_tot, b_per, etd_e, etd_nl)
+! !> second half step
 ! tim%t = tim%t + tim%dt
+! call STEP_BOUSSI_ETDFE_BE(psi_tot, chi_tot, b_per, etd_e, etd_nl)
 ! call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
-! call inspect_b(b_per,1)
+! call inspect(psi_tot,1)
+! call inspect(chi_tot,1)
+! call inspect(b_per,1)
+! if (mpi_rank.eq.0) then
+!    write(*,*) 'b_per%ln = ', b_per%ln
+!    write(*,*) 'psi_tot%ln = ', psi_tot%ln
+!    write(*,*) 'chi_tot%ln = ', chi_tot%ln
+! endif
+! call anynan(b_per,'b_per')
+! call anynan(psi_tot,'psi_tot')
+! call anynan(chi_tot,'chi_tot')
 
+! !> finalization
 ! call mprint('half step completed')
 ! call deallocate(psi_tot)
 ! call deallocate(chi_tot)
 ! call deallocate(b_per)
 ! call mpi_finalize(ierr)
 
+! ======================================================================
+!> tes run:
 !> initialize solver
 CALL PT_SOLVER%INITIALIZE(psi_tot, chi_tot, b_per)
 call diagnost(psi_tot,chi_tot)
@@ -88,12 +115,14 @@ CALL CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
 !> startup
 iii = tim%limit/tim%dt
 files%n = 1
-do it=1,200
+do it=1,500
 
    !> time-stepping
    CALL PT_SOLVER%TIME_STEPPING(psi_tot, chi_tot, b_per)
-   CALL inspect_b(b_per,1)
-
+   call inspect(psi_tot,1)
+   call inspect(chi_tot,1)
+   call inspect(b_per,1)
+   
 enddo
 
 999 continue
@@ -106,6 +135,28 @@ CALL PT_SOLVER%FINALIZE(psi_tot, chi_tot, b_per)
 ! ======================================================================
 contains
 ! ======================================================================
+!> @brief Saves mode data to a file for tracking purposes
+!>
+!> This subroutine writes complex field data for specific azimuthal and
+!> axial mode numbers to a tracking file. The data is appended to an
+!> existing file or creates a new one if it doesn't exist.
+!>
+!> @details The output file is named 'mode_track_mmm_kkk.dat' where mmm
+!> and kkk are the azimuthal and axial mode numbers respectively. Each
+!> line contains the time followed by the complex values of psi_new and
+!> chi_new arrays.
+!>
+!> @param[in] t        Current time value
+!> @param[in] psi_new  Complex array containing psi field data
+!> @param[in] chi_new  Complex array containing chi field data  
+!> @param[in] m_i      Azimuthal mode number for file naming
+!> @param[in] k_i      Axial mode number for file naming
+!>
+!> @note The format uses scientific notation with 6 digits precision
+!> @note File is opened in append mode to preserve existing data
+!>
+!> @author Jinge Wang
+!> @date AUG 2025
 subroutine save_mode(t,psi_new,chi_new,m_i,k_i)
 ! ======================================================================
    complex(p8),DIMENSION(:):: psi_new,chi_new
@@ -121,17 +172,35 @@ subroutine save_mode(t,psi_new,chi_new,m_i,k_i)
    close(777)
 320 FORMAT(F10.3,',',(S,E14.6E3,SP,E14.6E3,'i'),*(','S,E14.6E3,SP,E14.6E3,'i'))
 end subroutine save_mode
+
 ! ======================================================================
+!> @brief Generates random noise with Kolmogorov-like energy spectrum
+!>
+!> This subroutine fills a scalar field with random noise that follows
+!> a Kolmogorov-like energy spectrum. The routine handles MPI distribution
+!> and ensures proper conjugate symmetry for m=0 modes across different
+!> processor ranks.
+!>
+!> @details The noise generation uses an exponential decay based on total
+!> wavenumber. For m=0 modes, deterministic seeding ensures conjugate
+!> symmetry between positive and negative axial modes across MPI ranks.
+!> The decay rate and amplitude can be controlled through parameters.
+!>
+!> @param[inout] a            Scalar field object to be filled with noise.
+!>                           Contains spectral data array a%e and local
+!>                           index offsets a%inth and a%inx
+!> @param[in]    noise_level  Optional noise amplitude (default: 1.0e-6)
+!> @param[in]    is_save      Optional flag to save debugging output files
+!>                           for m=0 modes if present and .true.
+!>
+!> @note Uses MPI barriers for synchronization
+!> @note Conjugate symmetry is manually enforced for m=0 modes
+!> @note Random seed is based on system clock and MPI rank
+!> @note Debugging files are saved as 'm0_mode_rank_XXX.output'
+!>
+!> @author Jinge WANG  
+!> @date AUG 2025
 subroutine random_noise(a, noise_level, is_save)
-! ======================================================================
-! [USAGE]:
-! GENERATES RANDOM NOISE WITH A KOLMOGOROV-LIKE ENERGY SPECTRUM.
-! [PARAMETERS]:
-! A >> (INOUT) TYPE(SCALAR), THE SCALAR FIELD OBJECT TO BE FILLED WITH NOISE.
-!      CONTAINS THE SPECTRAL DATA ARRAY `A%E` AND THE LOCAL
-!      INDEX OFFSETS `A%INTH` AND `A%INX`.
-! IS_SAVE >> (IN) LOGICAL, OPTIONAL. IF PRESENT AND .TRUE., SAVES THE
-!            KOLMOGOROV SCALING FACTOR FOR DEBUGGING.
 ! ======================================================================
    implicit none
 
@@ -275,22 +344,34 @@ subroutine random_noise(a, noise_level, is_save)
 
 end subroutine random_noise
 
+!> @brief Combines mode data files from individual MPI ranks into a single file
+!>
+!> This subroutine reads mode data from individual MPI rank output files and
+!> combines them into a single file for a specific azimuthal mode number.
+!> This is primarily used for m=0 modes where manual conjugate symmetry
+!> handling requires each rank to write its portion of the spectrum.
+!>
+!> @details The routine reads header information to determine axial mode
+!> indices for each rank, then combines the complex field data into a
+!> global array. The output file contains all radial modes for all axial
+!> modes in a structured format. After successful combination, the
+!> individual rank files are automatically removed.
+!>
+!> @param[in] mode_num   Azimuthal mode number (e.g., 0 for m=0)
+!> @param[in] k_ind_tot  Total number of axial (k) indices in global spectrum
+!> @param[in] output_dir Directory containing individual rank output files
+!>                       and where combined file will be written
+!>
+!> @note Only MPI rank 0 performs the file combination
+!> @note Input files must follow naming: 'm<mode>_mode_rank_<rank>.output'
+!> @note Output file name: 'm<mode>_mode_combined.output' 
+!> @note Complex numbers expected in format: real+imagi or real-imagi
+!> @note Individual rank files are deleted after successful combination
+!>
+!> @author Jinge WANG
+!> @date AUG 2025
 subroutine combine_mode_files(mode_num, k_ind_tot, output_dir)
 ! ======================================================================
-! [USAGE]:
-! Combines mode data from individual MPI rank output files into a single
-! combined file for a specific mode number. This is primarily used for
-! m=0 modes where manual conjugate symmetry handling requires each rank
-! to write its portion of the spectrum.
-!
-! [PARAMETERS]:
-! mode_num   (in) : integer, The azimuthal mode number (e.g., 0 for m=0).
-! k_ind_tot  (in) : integer, The total number of axial (k) indices in the
-!                   global spectrum.
-! output_dir (in) : character(len=*), The directory where individual rank
-!                   output files are located
-! ======================================================================
-
    implicit none
 
    ! Input parameters
@@ -492,21 +573,35 @@ subroutine combine_mode_files(mode_num, k_ind_tot, output_dir)
    
 end subroutine combine_mode_files
 
+!> @brief Initializes a scalar field with a single Gaussian blob
+!>
+!> This subroutine creates a Gaussian-shaped blob in a scalar field using
+!> the pseudo-spectral method. The blob is specified by its center position
+!> in cylindrical coordinates and characteristic widths. The routine handles
+!> the staggered azimuthal grid required by the spectral method.
+!>
+!> @details The Gaussian blob is first created in physical space on both
+!> the primary and staggered grids, then transformed to spectral space.
+!> The blob amplitude decreases exponentially with distance from the center
+!> according to the specified characteristic widths. OpenMP parallelization
+!> is used for the physical space computation.
+!>
+!> @param[out] field     Scalar field object to be initialized with the blob
+!> @param[in]  amplitude Amplitude/peak value of the Gaussian blob
+!> @param[in]  r0        Radial distance of the blob's center from the axis
+!> @param[in]  phi0      Azimuthal angle (in radians) of the blob's center  
+!> @param[in]  z0        Vertical position of the blob's center
+!> @param[in]  wr        Characteristic width of the blob in the xy-plane
+!> @param[in]  wz        Characteristic width of the blob in the z-direction
+!>
+!> @note Uses OpenMP parallelization with collapse(3) directive
+!> @note Transforms from physical to spectral space via chopdo() and toff()
+!> @note Sets field%ln = 0.0 after initialization
+!> @note Corrected for 2D (r-z) MPI decomposition
+!>
+!> @author Jinge WANG
+!> @date AUG 2025
 subroutine gaussian_blob(field, amplitude, r0, phi0, z0, wr, wz)
-!=======================================================================
-! [USAGE]:
-! Initializes a scalar field with a single Gaussian blob. This version
-! is corrected for a 2D (r-z) MPI decomposition and populates the
-! staggered azimuthal grid required by the pseudo-spectral method.
-!
-! [PARAMETERS]:
-! field    (OUT): The type(SCALAR) object to be initialized.
-! amplitude(IN) : The amplitude of the Gaussian.
-! r0       (IN) : The radial distance of the blob's center.
-! phi0     (IN) : The azimuthal angle (in radians) of the blob's center.
-! z0       (IN) : The vertical position of the blob's center.
-! wr       (IN) : The characteristic width of the blob in the xy-plane.
-! wz       (IN) : The characteristic width of the blob in the z-direction.
 !=======================================================================
    implicit none
    type(scalar), intent(out)    :: field
@@ -575,33 +670,63 @@ subroutine gaussian_blob(field, amplitude, r0, phi0, z0, wr, wz)
 
 end subroutine gaussian_blob
 
-subroutine inspect_b(field, nk)
+! ======================================================================
+!> @brief Inspects and outputs field data to a file for analysis
+!>
+!> This subroutine examines a scalar field and writes its magnitude
+!> squared values to an output file for inspection purposes. The
+!> routine only processes distributed fields where both azimuthal 
+!> and axial wavenumber starting indices (INTH and INX) are zero.
+!>
+!> @details The subroutine writes data in a structured format where
+!> each line contains the current time followed by radial data for
+!> selected vertical modes. The output is appended to 'inspect.output'
+!> in the save directory. A MPI barrier ensures synchronization across
+!> all processes after execution. Note that field%e is distributed
+!> across processors.
+!>
+!> @param[in] field    Scalar field of type scalar containing the
+!>                     distributed data to inspect
+!> @param[in] nk       Optional integer specifying number of vertical
+!>                     modes to save. If not provided, defaults to
+!>                     minimum of 10 or total available modes
+!>
+!> @note Only processes fields with field%INTH = 0 and field%INX = 0
+!> @note Output format: time on first line, then mode index followed
+!>       by |field|² values
+!> @note Uses MPI barrier for process synchronization
+!> @note field%e is distributed across processors
+!>
+!> @author Jinge WANG
+!> @date AUG 2025
+subroutine inspect(field, nk)
 !=======================================================================
-implicit none
-type(scalar), intent(in) :: field
-integer, intent(in), optional :: nk
-integer :: iunit, nrad, nsave, i, nn
-character(len=256) :: fname
+   implicit none
+   type(scalar), intent(in) :: field
+   integer, intent(in), optional :: nk
+   integer :: iunit, nrad, nsave, i, nn
+   character(len=256) :: fname
 
-if ((field%INTH.eq.0).and.(field%INX.eq.0)) then
+   if ((field%INTH.eq.0).and.(field%INX.eq.0)) then
 
-   nrad = size(field%e,1)
-   if (present(nk)) then
-      nsave = min(nk, size(field%e,3))
-   else
-      nsave = min(10, size(field%e,3))
+      nrad = size(field%e,1)
+      if (present(nk)) then
+         nsave = min(nk, size(field%e,3))
+      else
+         nsave = min(10, size(field%e,3))
+      end if
+      fname = trim(files%savedir)//'inspect.output'
+      open(newunit=iunit, file=trim(fname), status='unknown', action='write', position='append')
+      write(iunit,*) TIM%T
+      do i = 1, nsave
+         write(iunit,'(I4,1x,*(ES14.6,","))') i, (abs(field%e(nn,1,i))**2, nn=1,nrad)
+      end do
+      close(iunit)
+
    end if
-   fname = trim(files%savedir)//'inspect_b_output.dat'
-   open(newunit=iunit, file=trim(fname), status='unknown', action='write', position='append')
-   write(iunit,*) TIM%T
-   do i = 1, nsave
-      write(iunit,'(I4,1x,*(ES14.6,","))') i, (abs(field%e(nn,1,i))**2, nn=1,nrad)
-   end do
-   close(iunit)
+   call mpi_barrier(MPI_COMM_IVP,IERR)
+   return
 
-end if
-call mpi_barrier(MPI_COMM_IVP,IERR)
-return
-end subroutine inspect_b
+end subroutine inspect
 
 end program bsnsq_test
