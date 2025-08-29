@@ -69,7 +69,7 @@ The code employs a pseudo-spectral method based on [Matsushima & Marcus (1997)](
 ```math
 \mathbf{u} = \nabla \times \nabla \times (\chi \mathbf{\hat{z}}) + \nabla \times (\psi \mathbf{\hat{z}})
 ```
-    The evolution equations are solved for $\chi$, $\psi$, and the buoyancy $b$. Note that, the Poloidal-Toroidal projection of a vector field essentially removes any contribution from scalar potentials, and the governing equations become simplified. For example, the nonlinear force term, which is the projection of $-(\mathbf{u} \cdot \nabla)\mathbf{u}$, is calculated as the projection of $\mathbf{u} \times \boldsymbol{\omega}$, where $\boldsymbol{\omega}$ is the vorticity vector. All terms related to pressure as well as centrifugal acceleration vanish after projection.
+The evolution equations are solved for $\chi$, $\psi$, and the buoyancy $b$. Note that, the Poloidal-Toroidal projection of a vector field essentially removes any contribution from scalar potentials, and the governing equations become simplified. For example, the nonlinear force term, which is the projection of $-(\mathbf{u} \cdot \nabla)\mathbf{u}$, is calculated as the projection of $\mathbf{u} \times \boldsymbol{\omega}$, where $\boldsymbol{\omega}$ is the vorticity vector. All terms related to pressure as well as centrifugal acceleration vanish after projection.
 
 *   **Spectral Basis**:
     *   **Azimuthal ($\theta$) and Axial ($z$)**: The fields are represented by Fourier series, which is optimal for periodic boundary conditions in these directions.
