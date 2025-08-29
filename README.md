@@ -105,7 +105,7 @@ The simulation is driven by a main program (e.g., `bsnsq_test.f90`) that uses th
     *   `DIAGNOST`: Called periodically to monitor the simulation. It calculates conserved quantities like total energy, helicity, and momentum.
     *   `CALC_BOUSSI_ENERGY`: Calculates the kinetic and potential energy spectra.
 
-### Analysis and Potential Issues
+Some notes:
 
 *   **Available Potential Energy Calculation**: In `CALC_BOUSSI_ENERGY`, the potential energy calculated is the available potential energy (APE) defined as $\int B^2 dV / (2\bar{N}^2)$.
 
@@ -121,7 +121,7 @@ This project is built upon a rich history of academic code development. The proj
 
 2.  **Modernization**: Dr. Sangjoon Lee undertook the significant task of modernizing this legacy Fortran code. He refactored the codebase, verified its numerical accuracy, and established a robust, single-node version that serves as the foundation to any later developments.
 
-3.  **Parallelization* and Extension***: Jinge Wang parallelized the modernized solver to enable large-scale simulations on distributed-memory supercomputers. That is later modularized by Sangjoon Lee and becomes the currently publicized foundational spectral library, which is available on our [GitHub repository](https://github.com/UCBCFD/MLegS). This project extends the functionality of the parallelized solver by adding Boussinesq physics, advanced time-stepping schemes (ETD2), a Python-based analysis environment, and a streamlined deployment system. Other improvements include MacOS and Linux auto-detect and compiling and hybrid OpenMP-MPI parallelization.
+3.  **Parallelization** and Extension***: Jinge Wang parallelized the modernized solver to enable large-scale simulations on distributed-memory supercomputers. That is later modularized by Sangjoon Lee and becomes the currently publicized foundational spectral library, which is available on our [GitHub repository](https://github.com/UCBCFD/MLegS). This project extends the functionality of the parallelized solver by adding Boussinesq physics, advanced time-stepping schemes (ETD2), a Python-based analysis environment, and a streamlined deployment system. Other improvements include MacOS and Linux auto-detect and compiling and hybrid OpenMP-MPI parallelization.
 
 ## Authors and Contributions
 
