@@ -83,7 +83,7 @@ The code provides two main time-advancement schemes, controlled by the `BSNSQ%AD
     *   **Nonlinear and Linear Wave Terms**: The advection term and the linear Coriolis and buoyancy terms are treated explicitly with the second-order Adams-Bashforth method.
     *   **Diffusion Terms**: The viscosity and diffusivity terms are treated implicitly with the second-order, unconditionally stable Crank-Nicolson method to avoid severe time-step restrictions at high resolution. This is implemented in `CALC_BOUSSI_VISC_CN`.
 
-*   **Scheme 2: Exponential Time Differencing (ETD2)** (when `BSNSQ%ADAMS` is set to `0`)
+*   **Scheme 2: Exponential Time Differencing (ETD2-CN)** (when `BSNSQ%ADAMS` is set to `0`)
     This is a more advanced scheme that is particularly effective when stiff linear terms (like fast waves) are present.
     *   **Linear Wave Terms**: The fast linear wave dynamics due to rotation (inertial waves) and stratification (internal gravity waves) are solved exactly using an exponential integrator. The core of this method is in `CALC_BOUSS_DIAG`, which diagonalizes the linear operator $\mathbb{L}$, and `CALC_BOUSSI_ETD_OP`, which pre-computes the exponential and related matrix operators.
     *   **Nonlinear Terms**: The nonlinear terms are handled explicitly using a second-order Adams-Bashforth-like formula (ETD2AB).
