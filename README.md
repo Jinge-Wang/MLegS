@@ -65,11 +65,7 @@ where:
 
 The code employs a pseudo-spectral method based on [Matsushima & Marcus (1997)](https://doi.org/10.1006/jcph.1997.5804).
 
-*   **Poloidal-Toroidal Decomposition**: To satisfy the incompressibility condition ($\nabla \cdot \mathbf{u} = 0$) automatically, the velocity field is decomposed into poloidal and toroidal components using scalar potentials $\chi$ (poloidal) and $\psi$ (toroidal):
-```math
-\mathbf{u} = \nabla \times \nabla \times (\chi \mathbf{\hat{z}}) + \nabla \times (\psi \mathbf{\hat{z}})
-```
-The evolution equations are solved for $\chi$, $\psi$, and the buoyancy $b$. Note that, the Poloidal-Toroidal projection of a vector field essentially removes any contribution from scalar potentials, and the governing equations become simplified. For example, the nonlinear force term, which is the projection of $-(\mathbf{u} \cdot \nabla)\mathbf{u}$, is calculated as the projection of $\mathbf{u} \times \boldsymbol{\omega}$, where $\boldsymbol{\omega}$ is the vorticity vector. All terms related to pressure as well as centrifugal acceleration vanish after projection.
+*   **Poloidal-Toroidal Decomposition**: To satisfy the incompressibility condition ($\nabla \cdot \mathbf{u} = 0$) automatically, the velocity field is decomposed into poloidal and toroidal components using scalar potentials $\chi$ (poloidal) and $\psi$ (toroidal): $\mathbf{u} = \nabla \times \nabla \times (\chi \mathbf{\hat{z}}) + \nabla \times (\psi \mathbf{\hat{z}})$. The evolution equations are solved for $\chi$, $\psi$, and the buoyancy $b$. Note that, the Poloidal-Toroidal projection of a vector field essentially removes any contribution from scalar potentials, and the governing equations become simplified. For example, the nonlinear force term, which is the projection of $-(\mathbf{u} \cdot \nabla)\mathbf{u}$, is calculated as the projection of $\mathbf{u} \times \boldsymbol{\omega}$, where $\boldsymbol{\omega}$ is the vorticity vector. All terms related to pressure as well as centrifugal acceleration vanish after projection.
 
 *   **Spectral Basis**:
     *   **Azimuthal ($\theta$) and Axial ($z$)**: The fields are represented by Fourier series, which is optimal for periodic boundary conditions in these directions.
