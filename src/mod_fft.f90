@@ -95,7 +95,7 @@ MODULE MOD_FFT ! LEVEL 2.5 MODULE
 
 ! =========================== FFT UTILITIES ============================
 ! INITIALIZE ALL SPECTRAL METHOD PARAMETERS AND SET THE TFM KIT:
-PUBLIC:: SETUP_GRID, LEGINIT, COLLOC_INFO
+PUBLIC:: SETUP_GRID, LEGINIT, PRINT_COLLOC_INFO
 ! ALLOCATE/DEALLOCATE MEMORY TO VARIABLES OF "TYPE(SCALAR)":
 PUBLIC:: ALLOCATE, DEALLOCATE
 ! WRAPPER FOR "EQUAL" OPERATOR (COPY0) AMONG TYPE(SCALAR) VARS.:
@@ -365,7 +365,7 @@ SUBROUTINE LEGINIT(MPI_COMM_INPUT, M_INPUT)
     RETURN
 END SUBROUTINE LEGINIT
 !=======================================================================
-SUBROUTINE COLLOC_INFO(SAVEDIR)
+SUBROUTINE PRINT_COLLOC_INFO(SAVEDIR)
 !=======================================================================
 ! [USAGE]:
 ! SAVE PHYSICAL COLLOCATION POINTS
@@ -376,27 +376,27 @@ SUBROUTINE COLLOC_INFO(SAVEDIR)
     IF (MPI_RANK.EQ.0) THEN
         ! SAVE THE RADIAL COLLOCATION POINTS (R)
         CALL MSAVE(TFM%R, TRIM(ADJUSTL(SAVEDIR))//&
-            'r_colloc_pts.dat')
+            'r_colloc_pts.info')
 
         ! SAVE THE X COLLOCATION POINTS (X)
         CALL MSAVE(TFM%X, TRIM(ADJUSTL(SAVEDIR))//&
-            'x_colloc_pts.dat')
+            'x_colloc_pts.info')
 
         ! SAVE THE GAUSS_LEGENDRE WEIGHTS (W)
         CALL MSAVE(TFM%W, TRIM(ADJUSTL(SAVEDIR))//&
-            'gau_leg_weights.dat')
+            'gau_leg_weights.info')
 
         ! SAVE THE AZIMUTHAL COLLOCATION POINTS (THETA)
         CALL MSAVE(TFM%TH, TRIM(ADJUSTL(SAVEDIR))//&
-            't_colloc_pts.dat')
+            't_colloc_pts.info')
 
         ! SAVE THE AXIAL COLLOCATION POINTS (Z)
         CALL MSAVE(TFM%Z, TRIM(ADJUSTL(SAVEDIR))//&
-            'z_colloc_pts.dat')
+            'z_colloc_pts.info')
     ENDIF
 
     RETURN
-END SUBROUTINE COLLOC_INFO
+END SUBROUTINE PRINT_COLLOC_INFO
 !=======================================================================
 SUBROUTINE PRINT_MPI_STRATEGY(SAVEDIR)
 !=======================================================================
@@ -592,7 +592,7 @@ SUBROUTINE PRINT_MPI_STRATEGY(SAVEDIR)
             CLOSE(MPI_INFO_UNIT)
         ENDIF
 
-        CALL COLLOC_INFO(SAVEDIR)
+        CALL PRINT_COLLOC_INFO(SAVEDIR)
 
     ENDIF
 

@@ -48,6 +48,7 @@ call diagnost(psi_tot,chi_tot)
 call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
 call inspect(psi_tot,1)
 call inspect(chi_tot,1)
+call inspect(b_per,1)
 
 !> initialize solver
 CALL PT_SOLVER%INITIALIZE(psi_tot, chi_tot, b_per)
@@ -64,9 +65,9 @@ do it=1,iii
 
    !> time-stepping
    CALL PT_SOLVER%TIME_STEPPING(psi_tot, chi_tot, b_per)
-   call inspect(psi_tot,1)
-   call inspect(chi_tot,1)
-   call inspect(b_per,1)
+   ! call inspect(psi_tot,1)
+   ! call inspect(chi_tot,1)
+   ! call inspect(b_per,1)
 
 enddo
 

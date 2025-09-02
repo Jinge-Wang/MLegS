@@ -50,11 +50,11 @@ VORTEXPAIR_CROW
 VORTEXPAIR_SECTION
 #      R      DR      RP      RK ---(CORER, DELTAR, DELTAPHASE & WAVE#)
       1.      0.      0.       1
-      1.      0.      0.       1
+      1.      0.1     0.       1
 # ---------------------------------------------------------------------
 DT
 #     DT   LIMIT ------------------------------------(DELTAT & ENDTIME)
-     0.005  150.0
+     0.005  300.0
 # ---------------------------------------------------------------------
 TIME_INTEG
 # SCHEME -----------------(TIME ADVANCEMENT SCHEME !!CURRENTLY DUMMY!!)
@@ -113,7 +113,7 @@ BI
 # ---------------------------------------------------------------------
 OUTPUTS
 #     NE --------------------------(NUMBER OF SNAPSHOTS OF PSI AND CHI)
-      15
+      30
 # ---------------------------------------------------------------------
 #      T         PSIX_F         CHIX_F         BX_F --(SNAPTIME, FILES)
 # (NE LINES. THE LAST SNAPSHOT TIME DETERMINES THE PROGRAM TERMINATION)
@@ -132,11 +132,26 @@ OUTPUTS
      130.0      psi130.dat      chi130.dat      b130.dat
      140.0      psi140.dat      chi140.dat      b140.dat
      150.0      psi150.dat      chi150.dat      b150.dat
+     160.0      psi160.dat      chi160.dat      b160.dat
+     170.0      psi170.dat      chi170.dat      b170.dat
+     180.0      psi180.dat      chi180.dat      b180.dat
+     190.0      psi190.dat      chi190.dat      b190.dat
+     200.0      psi200.dat      chi200.dat      b200.dat
+     210.0      psi210.dat      chi210.dat      b210.dat
+     220.0      psi220.dat      chi220.dat      b220.dat
+     230.0      psi230.dat      chi230.dat      b230.dat
+     240.0      psi240.dat      chi240.dat      b240.dat
+     250.0      psi250.dat      chi250.dat      b250.dat
+     260.0      psi260.dat      chi260.dat      b260.dat
+     270.0      psi270.dat      chi270.dat      b270.dat
+     280.0      psi280.dat      chi280.dat      b280.dat
+     290.0      psi290.dat      chi290.dat      b290.dat
+     300.0      psi300.dat      chi300.dat      b300.dat
 # ---------------------------------------------------------------------
 DIAGNOST
 #    IT1     IT2 ----(PERFORM DIAGNOSIS FOR EVERY 'IT1' OR 'IT2' STEPS)
 #                             (!! IT2 IS CURRENTLY A DUMMY VARIABLE !!)
-       1      40
+      10      40
 # ---------------------------------------------------------------------
 LINEAR
 #     MM      KK ------------------(LINEAR TERMS !! CURRENTLY DUMMY !!)

@@ -71,7 +71,7 @@ CALL SETUP_GRID()
 ! ======================================================================
 
 IF (MPI_RANK.EQ.0) THEN
-  CALL COLLOC_INFO(FILES%SAVEDIR)
+  CALL PRINT_COLLOC_INFO(FILES%SAVEDIR)
 
   ! NR: # OF RADIAL COLLOC. PTS
   ! NTH: # OF AZIMUTHAL COLLOC. PTS
