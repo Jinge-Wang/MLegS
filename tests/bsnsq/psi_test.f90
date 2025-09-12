@@ -47,6 +47,20 @@ program psi_test
 ! test also demonstrates that using rup_00(NR) is not as accurate.
 !
 ! VEL2PLN and the modified PROJECT are now part of MOD_LEGOPS.
+!
+! [UPDATE]:
+! 2025-09-04: 
+! Further derivation shows that the linear rotation cannot give any 
+! change to the log term of psi. Therefore, for the ABCN, we need to
+! modify back to enforce zero log term for psi, while for the ETD,
+! we must feed the original log term into project calculation.
+!
+! To see why the log term of psi is not affected by rotation, we use
+! Eqn (56) of Matushima, which performs volume integration of the axial
+! component of the curl of -2Omega\hat{z} X u - grad PI, where del2PI is
+! the divergence of the Coriolis term. The volume integral simplfies to
+! the volume integral of 2Omega partial_z u_z, which is zero based on
+! the periodic BC in z. 
 ! ======================================================================
    USE OMP_LIB
    USE MPI
@@ -137,7 +151,7 @@ endif
 !> calculate psi%ln and remove its contribution for rup
 tim%t = tim%t + tim%dt
 call allocate(w)
-call project(rur_test,rup_test,uz_test,psi_tot,w,.true.)
+call project(rur_test,rup_test,uz_test,psi_tot,w,psi_tot%ln) ! .true.) ! NOTE: new project asks user to provide LN
 call idel2ln(w,chi_tot)
 call deallocate(w)
 
