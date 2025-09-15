@@ -57,9 +57,9 @@ endif
 !> first diagnostic
 call diagnost(psi_tot,chi_tot)
 call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
-call inspect(psi_tot,1)
-call inspect(chi_tot,1)
-call inspect(b_per,1)
+! call inspect(psi_tot,1)
+! call inspect(chi_tot,1)
+! call inspect(b_per,1)
 
 ! ======================================================================
 ! !> half step test
@@ -115,13 +115,13 @@ CALL CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
 !> startup
 iii = tim%limit/tim%dt
 files%n = 1
-do it=1,500
+do it=1,4000
 
    !> time-stepping
    CALL PT_SOLVER%TIME_STEPPING(psi_tot, chi_tot, b_per)
-   call inspect(psi_tot,1)
-   call inspect(chi_tot,1)
-   call inspect(b_per,1)
+   ! call inspect(psi_tot,1)
+   ! call inspect(chi_tot,1)
+   ! call inspect(b_per,1)
    
 enddo
 

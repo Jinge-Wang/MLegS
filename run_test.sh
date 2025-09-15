@@ -3,9 +3,9 @@
 
 #SBATCH -A phy220056          # Allocation name
 #SBATCH --nodes=1             # Total # of nodes
-#SBATCH --ntasks-per-node=32  # Total # of MPI tasks per node
+#SBATCH --ntasks-per-node=64  # Total # of MPI tasks per node
 #SBATCH --cpus-per-task=2
-#SBATCH --time=00:15:00
+#SBATCH --time=01:10:00
 #SBATCH -J bsnsq_test
 #SBATCH -o bsnsq_test.o%j
 #SBATCH -e bsnsq_test.e%j

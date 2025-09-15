@@ -621,7 +621,8 @@ CONTAINS
           IF ((WARNING_SWITCH .GT. 0).AND.(LEG_TBL3(XX, NN, MM).EQ.0.D0)) THEN
 
             IF (WARNING_SWITCH == 1) THEN
-              WRITE(6,*) 'WARNING of LEG_TBL3: ENTRY(S) IS SMALLER THAN DP LIMIT - STORED AS ZERO'
+                WRITE(6,*) 'WARNING of LEG_TBL3: ENTRY(S) IS SMALLER THAN DP LIMIT - STORED AS ZERO'
+                WRITE(6,"(' FIRST ZERO ENTRY AT (XX =',I3,', NN =',I3,', MM =',I3,')')") XX, NN, MM
               WARNING_SWITCH = 0
             ELSE
               WRITE(6,"(' WARNING of LEG_TBL3: ( XX = ',I3,"  //  &
