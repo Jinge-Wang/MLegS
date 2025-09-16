@@ -43,9 +43,9 @@ call calc_qvortex(psi_tot, chi_tot)
 call allocate(b_per); b_per%e = 0.d0
 
 ! set up monitoring modes
-do iii = 1,size(monitor_mk,1)
-   if (monitor_mk(iii,1).lt.0) monitor_mk(iii,:) = -monitor_mk(iii,:)
-   if (monitor_mk(iii,2).lt.0) monitor_mk(iii,2) = 2*nxchop-1+monitor_mk(iii,2)
+do iii = 1,size(MONITORDATA%MK,1)
+   if (MONITORDATA%MK(iii,1).lt.0) MONITORDATA%MK(iii,:) = -MONITORDATA%MK(iii,:)
+   if (MONITORDATA%MK(iii,2).lt.0) MONITORDATA%MK(iii,2) = 2*nxchop-1+MONITORDATA%MK(iii,2)
 enddo
 
 ! initial conditions

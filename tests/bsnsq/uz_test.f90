@@ -71,9 +71,9 @@ call allocate(b_per); call gaussian_blob(b_per, 1.0d-3, 0.5d0, 0.0d0, 0.5*zlen, 
 call allocate(b_divxm2_per); call gaussian_blob_divxm2(b_divxm2_per, 1.0d-3, 0.5d0, 0.0d0, 0.5*zlen, 1.d0, 0.1*zlen)
 
 ! set up monitoring modes
-do iii = 1,size(monitor_mk,1)
-   if (monitor_mk(iii,1).lt.0) monitor_mk(iii,:) = -monitor_mk(iii,:)
-   if (monitor_mk(iii,2).lt.0) monitor_mk(iii,2) = 2*nxchop-1+monitor_mk(iii,2)
+do iii = 1,size(MONITORDATA%MK,1)
+   if (MONITORDATA%MK(iii,1).lt.0) MONITORDATA%MK(iii,:) = -MONITORDATA%MK(iii,:)
+   if (MONITORDATA%MK(iii,2).lt.0) MONITORDATA%MK(iii,2) = 2*nxchop-1+MONITORDATA%MK(iii,2)
 enddo
 
 ! initial conditions

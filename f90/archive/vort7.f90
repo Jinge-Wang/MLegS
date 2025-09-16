@@ -110,12 +110,12 @@ do it=1,iii
       call monitor_eig(psi_o,chi_o,psi,chi,time0,tim%t)
       DO II = 1,SIZE(PSI%E,2)
          DO JJ = 1,SIZE(PSI%E,3)
-               IF ((II+PSI%INTH .EQ. MONITOR_MK(2,1)+1).AND.(JJ+PSI%INX .EQ. MONITOR_MK(2,2)+1)) THEN
+               IF ((II+PSI%INTH .EQ. MONITORDATA%MK(2,1)+1).AND.(JJ+PSI%INX .EQ. MONITORDATA%MK(2,2)+1)) THEN
                   CALL save_mode(tim%t,psi%E(:,II,JJ),chi%E(:,II,JJ),II+PSI%INTH-1,JJ+PSI%INX-1)
                   psi2%E(:,II,JJ) = psi%E(:,II,JJ)
                   chi2%E(:,II,JJ) = chi%E(:,II,JJ)
                ENDIF
-               IF ((II+PSI%INTH .EQ. MONITOR_MK(3,1)+1).AND.(JJ+PSI%INX .EQ. MONITOR_MK(3,2)+1)) THEN
+               IF ((II+PSI%INTH .EQ. MONITORDATA%MK(3,1)+1).AND.(JJ+PSI%INX .EQ. MONITORDATA%MK(3,2)+1)) THEN
                   CALL save_mode(tim%t,psi%E(:,II,JJ),chi%E(:,II,JJ),II+PSI%INTH-1,JJ+PSI%INX-1)
                   psi2%E(:,II,JJ) = psi%E(:,II,JJ)
                   chi2%E(:,II,JJ) = chi%E(:,II,JJ)

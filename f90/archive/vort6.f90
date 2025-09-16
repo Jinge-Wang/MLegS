@@ -123,7 +123,7 @@ allocate(eig_1_psi_r(size(psi_o%e,1)),eig_2_psi_r(size(psi_o%e,1)))
 allocate(eig_1_chi_r(size(psi_o%e,1)),eig_2_chi_r(size(psi_o%e,1)))
 DO II = 1,SIZE(psi%E,2)
     DO JJ = 1,SIZE(psi%E,3)
-        IF ((II+psi%INTH .EQ. MONITOR_MK(2,1)+1).AND.(JJ+psi%INX .EQ. MONITOR_MK(2,2)+1)) THEN
+        IF ((II+psi%INTH .EQ. MONITORDATA%MK(2,1)+1).AND.(JJ+psi%INX .EQ. MONITORDATA%MK(2,2)+1)) THEN
             eig_1_psi_r = 0.D0
             eig_1_chi_r = 0.D0
             DO KK = 1,NR
@@ -139,7 +139,7 @@ DO II = 1,SIZE(psi%E,2)
             WRITE(*,*) "M1K1 eig (psi, TOP 10) = ",sum(eig_1_psi_r(1:10))/10
             WRITE(*,*) "M1K1 eig (chi, TOP 10) = ",sum(eig_1_chi_r(1:10))/10
         ENDIF
-        IF ((II+psi%INTH .EQ. MONITOR_MK(3,1)+1).AND.(JJ+psi%INX .EQ. MONITOR_MK(3,2)+1)) THEN
+        IF ((II+psi%INTH .EQ. MONITORDATA%MK(3,1)+1).AND.(JJ+psi%INX .EQ. MONITORDATA%MK(3,2)+1)) THEN
             eig_2_psi_r = 0.D0
             eig_2_chi_r = 0.D0
             DO KK = 1,NR

@@ -119,9 +119,9 @@ CALL NONLIN(PSI,CHI,dpsi,dchi)
 ! calculate N(U_bar)U' + M(Vq)U'
 DO II = 1,SIZE(PSI%E,2)
     DO JJ = 1,SIZE(PSI%E,3)
-        IF ((II+PSI%INTH .EQ. MONITOR_MK(1,1)+1).AND.(JJ+PSI%INX .EQ. MONITOR_MK(1,2)+1)) THEN
+        IF ((II+PSI%INTH .EQ. MONITORDATA%MK(1,1)+1).AND.(JJ+PSI%INX .EQ. MONITORDATA%MK(1,2)+1)) THEN
             ! ADD bar term to psi_c&chi_c
-            ! MONITOR_MK(1,1) MUST MATCH THE PERTURBATION(BAR) MODE
+            ! MONITORDATA%MK(1,1) MUST MATCH THE PERTURBATION(BAR) MODE
             psi_c%E(:,II,JJ) = psi%E(:,II,JJ) + psi_c%E(:,II,JJ)
             chi_c%E(:,II,JJ) = chi%E(:,II,JJ) + chi_c%E(:,II,JJ)
         ENDIF
@@ -163,7 +163,7 @@ DO II = 1,SIZE(PSI%E,2)
         ! prod_result(II,JJ) = sum(psi_l%E(:,II,JJ)*conjg(PSI%E(:,II,JJ)))+sum(chi_l%E(:,II,JJ)*conjg(chi%E(:,II,JJ)))
         prod_result(II,JJ) = DOT_PRODUCT(psi_l%E(:,II,JJ),PSI%E(:,II,JJ))+DOT_PRODUCT(chi_l%E(:,II,JJ),CHI%E(:,II,JJ))
         ! IF (abs(prod_result(II,JJ)).NE.0) WRITE(*,*) "M:",II+PSI%INTH,",K:",JJ+PSI%INX,prod_result(II,JJ),",AK:",AK(II+PSI%INTH,JJ+PSI%INX)
-        IF ((II+PSI%INTH .EQ. MONITOR_MK(2,1)+1).AND.(JJ+PSI%INX .EQ. MONITOR_MK(2,2)+1)) THEN
+        IF ((II+PSI%INTH .EQ. MONITORDATA%MK(2,1)+1).AND.(JJ+PSI%INX .EQ. MONITORDATA%MK(2,2)+1)) THEN
             WRITE(*,*) "M1K1 sum = ",prod_result(II,JJ)
             ! WRITE(*,*) psi_l%e(:,ii,jj)
             ! WRITE(*,*) chi_l%e(:,ii,jj)
@@ -172,7 +172,7 @@ DO II = 1,SIZE(PSI%E,2)
             dpsi%e(:,II,JJ) = dpsi%e(:,II,JJ) - (-1.33544798*IU)*psi_c%e(:,II,JJ)
             dchi%e(:,II,JJ) = dchi%e(:,II,JJ) - (-1.33544798*IU)*chi_c%e(:,II,JJ)
         ENDIF
-        IF ((II+PSI%INTH .EQ. MONITOR_MK(3,1)+1).AND.(JJ+PSI%INX .EQ. MONITOR_MK(3,2)+1)) THEN
+        IF ((II+PSI%INTH .EQ. MONITORDATA%MK(3,1)+1).AND.(JJ+PSI%INX .EQ. MONITORDATA%MK(3,2)+1)) THEN
             WRITE(*,*) "M2K2 sum = ",prod_result(II,JJ)
             ! WRITE(*,*) psi_l%e(:,ii,jj)
             ! WRITE(*,*) chi_l%e(:,ii,jj)
@@ -195,7 +195,7 @@ allocate(eig_1_psi_r(size(psi_o%e,1)),eig_2_psi_r(size(psi_o%e,1)))
 allocate(eig_1_chi_r(size(psi_o%e,1)),eig_2_chi_r(size(psi_o%e,1)))
 DO II = 1,SIZE(PSI%E,2)
     DO JJ = 1,SIZE(PSI%E,3)
-        IF ((II+PSI%INTH .EQ. MONITOR_MK(2,1)+1).AND.(JJ+PSI%INX .EQ. MONITOR_MK(2,2)+1)) THEN
+        IF ((II+PSI%INTH .EQ. MONITORDATA%MK(2,1)+1).AND.(JJ+PSI%INX .EQ. MONITORDATA%MK(2,2)+1)) THEN
             eig_1_psi_r = 0.D0
             eig_1_chi_r = 0.D0
             DO KK = 1,NR
@@ -218,7 +218,7 @@ DO II = 1,SIZE(PSI%E,2)
             WRITE(*,*) "     std = ", (sum((abs(eig_1_chi_r(1:NR)-eig_1_chi))**2)/NR)**0.5
             WRITE(*,*) "max error = ", MAXVAL(ABS(dchi%E(:,II,JJ)-chi_o%E(:,II,JJ))/ABS(prod_result(II,JJ)))
         ENDIF
-        IF ((II+PSI%INTH .EQ. MONITOR_MK(3,1)+1).AND.(JJ+PSI%INX .EQ. MONITOR_MK(3,2)+1)) THEN
+        IF ((II+PSI%INTH .EQ. MONITORDATA%MK(3,1)+1).AND.(JJ+PSI%INX .EQ. MONITORDATA%MK(3,2)+1)) THEN
             eig_2_psi_r = 0.D0
             eig_2_chi_r = 0.D0
             DO KK = 1,NR
@@ -245,7 +245,7 @@ DO II = 1,SIZE(PSI%E,2)
 ENDDO
 ! DO II = 1,SIZE(PSI%E,2)
 !     DO JJ = 1,SIZE(PSI%E,3)
-!         IF ((II+PSI%INTH .EQ. MONITOR_MK(2,1)+1).AND.(JJ+PSI%INX .EQ. MONITOR_MK(2,2)+1)) THEN
+!         IF ((II+PSI%INTH .EQ. MONITORDATA%MK(2,1)+1).AND.(JJ+PSI%INX .EQ. MONITORDATA%MK(2,2)+1)) THEN
 !             eig_1 = 0.D0
 !             DO KK = 1,NRCHOPS(II+PSI%INTH)
 !                 eig_1(KK) = PSI%E(KK,II,JJ)/psi_o%E(KK,II,JJ)
@@ -258,7 +258,7 @@ ENDDO
 !             WRITE(*,*) "M1K1 eig = ",sum(eig_1(1:10))/10
 !             WRITE(*,*) "ERROR: ",SUM(ABS(PSI%E(:,II,JJ)-psi_o%E(:,II,JJ))+ABS(CHI%E(:,II,JJ)-chi_o%E(:,II,JJ)))/size(PSI%E(:,II,JJ))
 !         ENDIF
-!         IF ((II+PSI%INTH .EQ. MONITOR_MK(3,1)+1).AND.(JJ+PSI%INX .EQ. MONITOR_MK(3,2)+1)) THEN
+!         IF ((II+PSI%INTH .EQ. MONITORDATA%MK(3,1)+1).AND.(JJ+PSI%INX .EQ. MONITORDATA%MK(3,2)+1)) THEN
 !             eig_2 = 0.D0
 !             DO KK = 1,NRCHOPS(II+PSI%INTH)
 !                 eig_2(KK) = PSI%E(KK,II,JJ)/psi_o%E(KK,II,JJ)
