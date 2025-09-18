@@ -68,7 +68,7 @@ call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
 
 ! !> first half step
 ! tim%t = tim%t + tim%dt
-! call STEP_BOUSSI_ETDFE_BE(psi_tot, chi_tot, b_per, etd_e, etd_nl)
+! call STEP_BOUSSI_ETDFE_BE(psi_tot, chi_tot, b_per, etd_e, etd_nl, tim%dt)
 ! call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
 ! call inspect(psi_tot,1)
 ! call inspect(chi_tot,1)
@@ -84,7 +84,7 @@ call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
 
 ! !> second half step
 ! tim%t = tim%t + tim%dt
-! call STEP_BOUSSI_ETDFE_BE(psi_tot, chi_tot, b_per, etd_e, etd_nl)
+! call STEP_BOUSSI_ETDFE_BE(psi_tot, chi_tot, b_per, etd_e, etd_nl, tim%dt)
 ! call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
 ! call inspect(psi_tot,1)
 ! call inspect(chi_tot,1)
@@ -348,8 +348,6 @@ end subroutine random_noise
 !>
 !> This subroutine reads mode data from individual MPI rank output files and
 !> combines them into a single file for a specific azimuthal mode number.
-!> This is primarily used for m=0 modes where manual conjugate symmetry
-!> handling requires each rank to write its portion of the spectrum.
 !>
 !> @details The routine reads header information to determine axial mode
 !> indices for each rank, then combines the complex field data into a
@@ -367,6 +365,8 @@ end subroutine random_noise
 !> @note Output file name: 'm<mode>_mode_combined.output' 
 !> @note Complex numbers expected in format: real+imagi or real-imagi
 !> @note Individual rank files are deleted after successful combination
+!> @note Currently used to process random noise output for m=0 modes to
+!!>       confirm manual conjugate symmetry is correctly implemented
 !>
 !> @author Jinge WANG
 !> @date AUG 2025

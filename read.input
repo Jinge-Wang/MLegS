@@ -1,10 +1,10 @@
 DIMENSION 
 #     NR     NTH      NX ----------------------------------(POWER OF 2)
-     370     216     256
+     360     204     352
 # ---------------------------------------------------------------------
 CHOPS
 # NRCHOP  NTCHOP  NXCHOP --(NXCHOP<=NX/2 UNLESS NXCHOP=NX=1,NRCHOP<=NR)
-     350     144     128
+     350     136     176
 # ---------------------------------------------------------------------
 ELL
 #    ELL -----------------------------------------------(MAP PARAMETER)
@@ -62,15 +62,15 @@ TIME_INTEG
 # ---------------------------------------------------------------------
 VISCOSITY
 #     SW      NU     NUP       P --(SWITCH, VISCOSITY, HYPERV, HELMPOW)
-       1    0.0000002  0.000001    6
+       3    0.0000002  0.00000025    4
 # ---------------------------------------------------------------------
 NUP_ADJUST
 #  ADJSW  ADJINT -(HYPERV ADJUSTMENT SWITCH & FOR EVERY 'ADJINT' STEPS)
-       0       1
+       1     100
 # ---------------------------------------------------------------------
 BOUSSINESQ
 #     BV0    OMEGA    KAPPA   KAPPAP    ABSW ------(USE A-B FOR LINEAR)
-      1.0     1.0   0.0000002    0.0      1
+      1.0     1.0   0.0000002    0.0      0
 # ---------------------------------------------------------------------
 FREESTREAM
 #     SW      UX      UY      UZ     INT -(SWITCH, UX, UY, UZ, # STEPS)
@@ -151,7 +151,7 @@ OUTPUTS
 DIAGNOST
 #    IT1     IT2 ----(PERFORM DIAGNOSIS FOR EVERY 'IT1' OR 'IT2' STEPS)
 #                             (!! IT2 IS CURRENTLY A DUMMY VARIABLE !!)
-       1      40
+     100      40
 # ---------------------------------------------------------------------
 LINEAR
 #     MM      KK ------------------(LINEAR TERMS !! CURRENTLY DUMMY !!)

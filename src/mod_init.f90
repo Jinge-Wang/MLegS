@@ -962,8 +962,8 @@ WRITE(FUNIT,'(A)') '# ----------------------------------------------------------
 
 WRITE(FUNIT,'(A)') 'BOUSSINESQ'
 WRITE(FUNIT,'(A)') '#     BV0    OMEGA    KAPPA   KAPPAP    ABSW ------(USE A-B FOR LINEAR)'
-WRITE(FUNIT,'(4F9.3,I8)') BSNSQ%BV0, BSNSQ%OMEGA, BSNSQ%KAPPA, BSNSQ%KAPPAP, &
-                        MERGE(1, 0, BSNSQ%ADAMS)
+WRITE(FUNIT,'(2F9.3,2ES11.4,I8)') BSNSQ%BV0, BSNSQ%OMEGA, BSNSQ%KAPPA, BSNSQ%KAPPAP, &
+                 MERGE(1, 0, BSNSQ%ADAMS)
 WRITE(FUNIT,'(A)') '# ---------------------------------------------------------------------'
 
 WRITE(FUNIT,'(A)') 'FREESTREAM'
