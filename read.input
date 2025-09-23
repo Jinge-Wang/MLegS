@@ -151,7 +151,7 @@ OUTPUTS
 DIAGNOST
 #    IT1     IT2 ----(PERFORM DIAGNOSIS FOR EVERY 'IT1' OR 'IT2' STEPS)
 #                             (!! IT2 IS CURRENTLY A DUMMY VARIABLE !!)
-     100      40
+       5      40
 # ---------------------------------------------------------------------
 LINEAR
 #     MM      KK ------------------(LINEAR TERMS !! CURRENTLY DUMMY !!)
@@ -173,6 +173,6 @@ MONITOR_MK
 # ---------------------------------------------------------------------
 POSTPROCESS
 #  START  FINISH     JOB   SLICEI --(STARTINT,FINISHINT,JOBTYPE,SLICEI)
-       1      2       1       1
+       1      1       1      176
 # ---------------------------------------------------------------------
 END
