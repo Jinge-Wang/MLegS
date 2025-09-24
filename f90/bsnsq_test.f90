@@ -113,9 +113,6 @@ do it=1,5500
 
    !> time-stepping
    CALL PT_SOLVER%TIME_STEPPING(psi_tot, chi_tot, b_per)
-   call inspect(psi_tot,1)
-   call inspect(chi_tot,1)
-   call inspect(b_per,1)
    
 enddo
 
@@ -663,64 +660,5 @@ subroutine gaussian_blob(field, amplitude, r0, phi0, z0, wr, wz)
    call chopdo(field)
 
 end subroutine gaussian_blob
-
-! ======================================================================
-!> @brief Inspects and outputs field data to a file for analysis
-!>
-!> This subroutine examines a scalar field and writes its magnitude
-!> squared values to an output file for inspection purposes. The
-!> routine only processes distributed fields where both azimuthal 
-!> and axial wavenumber starting indices (INTH and INX) are zero.
-!>
-!> @details The subroutine writes data in a structured format where
-!> each line contains the current time followed by radial data for
-!> selected vertical modes. The output is appended to 'inspect.output'
-!> in the save directory. A MPI barrier ensures synchronization across
-!> all processes after execution. Note that field%e is distributed
-!> across processors.
-!>
-!> @param[in] field    Scalar field of type scalar containing the
-!>                     distributed data to inspect
-!> @param[in] nk       Optional integer specifying number of vertical
-!>                     modes to save. If not provided, defaults to
-!>                     minimum of 10 or total available modes
-!>
-!> @note Only processes fields with field%INTH = 0 and field%INX = 0
-!> @note Output format: time on first line, then mode index followed
-!>       by |field|² values
-!> @note Uses MPI barrier for process synchronization
-!> @note field%e is distributed across processors
-!>
-!> @author Jinge WANG
-!> @date AUG 2025
-subroutine inspect(field, nk)
-!=======================================================================
-   implicit none
-   type(scalar), intent(in) :: field
-   integer, intent(in), optional :: nk
-   integer :: iunit, nrad, nsave, i, nn
-   character(len=256) :: fname
-
-   if ((field%INTH.eq.0).and.(field%INX.eq.0)) then
-
-      nrad = size(field%e,1)
-      if (present(nk)) then
-         nsave = min(nk, size(field%e,3))
-      else
-         nsave = min(10, size(field%e,3))
-      end if
-      fname = trim(files%savedir)//'inspect.output'
-      open(newunit=iunit, file=trim(fname), status='unknown', action='write', position='append')
-      write(iunit,*) TIM%T
-      do i = 1, nsave
-         write(iunit,'(I4,1x,*(ES14.6,","))') i, (abs(field%e(nn,1,i))**2, nn=1,nrad)
-      end do
-      close(iunit)
-
-   end if
-   call mpi_barrier(MPI_COMM_IVP,IERR)
-   return
-
-end subroutine inspect
 
 end program bsnsq_test
