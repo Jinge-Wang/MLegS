@@ -62,7 +62,7 @@ TIME_INTEG
 # ---------------------------------------------------------------------
 VISCOSITY
 #     SW      NU     NUP       P --(SWITCH, VISCOSITY, HYPERV, HELMPOW)
-       3    0.0000002  0.00000025    4
+       3    0.0000002  0.00000001    4
 # ---------------------------------------------------------------------
 NUP_ADJUST
 #  ADJSW  ADJINT -(HYPERV ADJUSTMENT SWITCH & FOR EVERY 'ADJINT' STEPS)
@@ -70,7 +70,7 @@ NUP_ADJUST
 # ---------------------------------------------------------------------
 BOUSSINESQ
 #     BV0    OMEGA    KAPPA   KAPPAP    ABSW ------(USE A-B FOR LINEAR)
-      1.0     1.0   0.0000002    0.0      0
+      1.0     1.0   0.0000002    0.00000001      0
 # ---------------------------------------------------------------------
 FREESTREAM
 #     SW      UX      UY      UZ     INT -(SWITCH, UX, UY, UZ, # STEPS)
