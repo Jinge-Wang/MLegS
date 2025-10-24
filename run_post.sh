@@ -5,7 +5,7 @@
 #SBATCH --nodes=1             # Total # of nodes 
 #SBATCH --ntasks-per-node=64  # Total # of MPI tasks per node
 #SBATCH --cpus-per-task=2     # cpu-cores per task 
-#SBATCH --time=00:05:00       # Total run time limit (hh:mm:ss)
+#SBATCH --time=00:10:00       # Total run time limit (hh:mm:ss)
 #SBATCH -J post
 #SBATCH -o postproc.o%j
 #SBATCH -e postproc.e%j

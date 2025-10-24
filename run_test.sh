@@ -5,7 +5,7 @@
 #SBATCH --nodes=1             # Total # of nodes
 #SBATCH --ntasks-per-node=64  # Total # of MPI tasks per node
 #SBATCH --cpus-per-task=2
-#SBATCH --time=00:35:00
+#SBATCH --time=01:30:00
 #SBATCH -J bsnsq_test
 #SBATCH -o bsnsq_test.o%j
 #SBATCH -e bsnsq_test.e%j
@@ -23,9 +23,14 @@ rm -f ./output/*
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 echo "$SLURM_NTASKS tasks - $SLURM_CPUS_PER_TASK cores per task"
 
-srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/bsnsq_test_exec
+# MAIN SIMULATION EXECUTION:
+srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/bsnsq_gauss_exec
+# srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/bsnsq_test_exec
 # srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/uz_test_exec
 # srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/bsnsq_critical_exec
+
+# POST-PROCESSING:
+srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/postproc_exec
 
 # PAST TESTS:
 # (PASSED) srun --mpi=pmi2 -n $SLURM_NTASKS ./bin/divxm_test_exec

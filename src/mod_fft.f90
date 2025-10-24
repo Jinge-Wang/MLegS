@@ -257,7 +257,7 @@ SUBROUTINE LEGINIT(MPI_COMM_INPUT, M_INPUT)
       DO KK=1,NXCHOPDIM
         KV=KK-1 + MKLINK*(MM-1)
         IF(KK.GT.NXCHOP) THEN
-          KV=-(NXCHOPDIM-KK+1)
+          KV=-(NXCHOPDIM-KK+1) ! This needs to be fixed for mklink != 0 case
         ENDIF
         AK(MM,KK) = 2*PI/ZLEN*KV
       ENDDO
