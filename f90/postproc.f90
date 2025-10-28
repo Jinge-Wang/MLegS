@@ -65,7 +65,8 @@ USE MOD_INIT
 
 IMPLICIT NONE
 TYPE(SCALAR):: PSI,CHI,B
-INTEGER :: I, JOB_X, JOB_Y, JOB_Z
+INTEGER :: I, JOB_X, JOB_Y, JOB_Z, JOB_NUM, JOB_IND
+LOGICAL:: SAVE_HIGHFREQ
 ! I/O
 real(P8):: time_start,time_end
 
@@ -73,54 +74,94 @@ CALL SETUP_ENVIRONMENT('noecho')
 CALL SETUP_GRID(FILES%SAVEDIR)
 IF (MPI_RANK.EQ.0) time_start = mpi_wtime()
 
-JOB_X = POSTPROCESS%JOB / 100
-JOB_Y = MOD(POSTPROCESS%JOB, 100) / 10
-JOB_Z = MOD(POSTPROCESS%JOB, 10)
-IF (MPI_RANK.EQ.0) THEN
-    WRITE(*,*) 'Postprocessing Job:', POSTPROCESS%JOB
-    WRITE(*,*) 'Field (X):', JOB_X, ' Component (Y):', JOB_Y, ' Slice (Z):', JOB_Z
+IF (.NOT. ALLOCATED(POSTPROCESS%START)) THEN
+    IF (MPI_RANK.EQ.0) WRITE(*,*) 'POSTPROCESS: No postprocess jobs defined.'
+    CALL MPI_FINALIZE(IERR)
+    STOP
 ENDIF
 
-DO I=POSTPROCESS%START,POSTPROCESS%FINISH
+JOB_NUM = SIZE(POSTPROCESS%START)
+DO JOB_IND = 1, JOB_NUM
 
-    CALL MPI_BARRIER(MPI_COMM_WORLD,IERR)
+    SAVE_HIGHFREQ = POSTPROCESS%JOB(JOB_IND) .LT. 0
+    JOB_X = ABS(POSTPROCESS%JOB(JOB_IND)) / 100
+    JOB_Y = MOD(ABS(POSTPROCESS%JOB(JOB_IND)), 100) / 10
+    JOB_Z = MOD(ABS(POSTPROCESS%JOB(JOB_IND)), 10)
 
-    ! Load data for the current snapshot
-    CALL ALLOCATE(PSI); CALL ALLOCATE(CHI); CALL ALLOCATE(B)
-    IF (POSTPROCESS%START .EQ. -1) THEN
-        CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSII,PSI)
-        CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%CHII,CHI)
-        CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%BI,B)
-    ELSE
-        CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSI(I),PSI)
-        CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%CHI(I),CHI)
-        CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%B(I),B)
+    IF (MPI_RANK.EQ.0) THEN
+        WRITE(*,*) 'Postprocessing Job:', POSTPROCESS%JOB(JOB_IND)
+        WRITE(*,*) 'Field (X):', JOB_X, ' Component (Y):', JOB_Y, ' Slice (Z):', JOB_Z
     ENDIF
 
-    ! Process and save based on JOB
-    IF (JOB_X == 0 .OR. JOB_X == 1) THEN ! Process Velocity and Buoyancy
-        IF (JOB_Y == 0 .OR. JOB_Y == 1) CALL PROCESS_AND_SAVE('velR', I, PSI, CHI, B)
-        IF (JOB_Y == 0 .OR. JOB_Y == 2) CALL PROCESS_AND_SAVE('velTh', I, PSI, CHI, B)
-        IF (JOB_Y == 0 .OR. JOB_Y == 3) CALL PROCESS_AND_SAVE('velZ', I, PSI, CHI, B)
-        IF (JOB_Y == 0 .OR. JOB_Y == 4) THEN
-             CALL PROCESS_AND_SAVE('buoyancy', I, PSI, CHI, B)
+    DO I=POSTPROCESS%START(JOB_IND),POSTPROCESS%FINISH(JOB_IND)
+
+        CALL MPI_BARRIER(MPI_COMM_IVP,IERR)
+
+        ! Check if required PSI file exists before attempting to load
+        IF (POSTPROCESS%START(JOB_IND) .EQ. -1) THEN
+            IF (.NOT. FILE_EXISTS(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSII)) THEN
+            IF (MPI_RANK.EQ.0) THEN
+                WRITE(*,*) 'POSTPROCESS: Initial condition PSI file missing, skipping...'
+                WRITE(*,*) '  PSI:', TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSII
+            ENDIF
+            CYCLE
+            ENDIF
+        ELSE
+            IF (.NOT. FILE_EXISTS(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSI(I))) THEN
+            IF (MPI_RANK.EQ.0) THEN
+                WRITE(*,*) 'POSTPROCESS: Snapshot', I, 'PSI file missing, skipping...'
+                WRITE(*,*) '  PSI:', TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSI(I)
+            ENDIF
+            CYCLE
+            ENDIF
         ENDIF
-    ENDIF
 
-    IF (JOB_X == 0 .OR. JOB_X == 2) THEN ! Process Vorticity and Buoyancy
-        IF (JOB_Y == 0 .OR. JOB_Y == 1) CALL PROCESS_AND_SAVE('vorR', I, PSI, CHI, B)
-        IF (JOB_Y == 0 .OR. JOB_Y == 2) CALL PROCESS_AND_SAVE('vorTh', I, PSI, CHI, B)
-        IF (JOB_Y == 0 .OR. JOB_Y == 3) CALL PROCESS_AND_SAVE('vorZ', I, PSI, CHI, B)
-        IF ((JOB_Y == 0 .OR. JOB_Y == 4) .AND. (JOB_X == 2)) THEN
-            CALL PROCESS_AND_SAVE('buoyancy', I, PSI, CHI, B)
+        ! Load data for the current snapshot
+        CALL ALLOCATE(PSI); CALL ALLOCATE(CHI); CALL ALLOCATE(B)
+        IF (POSTPROCESS%START(JOB_IND) .EQ. -1) THEN
+            CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSII,PSI)
+            CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%CHII,CHI)
+            CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%BI,B)
+        ELSE
+            CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSI(I),PSI)
+            CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%CHI(I),CHI)
+            CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%B(I),B)
         ENDIF
-    ELSE IF ((JOB_X > 2) .OR. (JOB_X < 0) )THEN
-        IF (MPI_RANK.EQ.0) WRITE(*,*) 'POSTPROCESS: Invalid JOB field type (X digit).'
-    ENDIF
 
-    CALL DEALLOCATE(PSI); CALL DEALLOCATE(CHI); CALL DEALLOCATE(B)
-    IF (POSTPROCESS%START .EQ. -1) EXIT
+        ! Optional high-pass filtering
+        ! This step keeps only the high-frequency components for debug visualization.
+        IF (SAVE_HIGHFREQ) THEN
+            ! CALL HIGH_PASS_FILTER(PSI)
+            PSI%E = (0.0D0, 0.0D0); PSI%LN = 0.D0
+            CALL HIGH_PASS_FILTER(CHI)
+            CALL HIGH_PASS_FILTER(B)
+        ENDIF
 
+        ! Process and save based on JOB
+        IF (JOB_X == 0 .OR. JOB_X == 1) THEN ! Process Velocity and Buoyancy
+            IF (JOB_Y == 0 .OR. JOB_Y == 1) CALL PROCESS_AND_SAVE('velR', I, PSI, CHI, B)
+            IF (JOB_Y == 0 .OR. JOB_Y == 2) CALL PROCESS_AND_SAVE('velTh', I, PSI, CHI, B)
+            IF (JOB_Y == 0 .OR. JOB_Y == 3) CALL PROCESS_AND_SAVE('velZ', I, PSI, CHI, B)
+            IF (JOB_Y == 0 .OR. JOB_Y == 4) THEN
+                CALL PROCESS_AND_SAVE('buoyancy', I, PSI, CHI, B)
+            ENDIF
+        ENDIF
+
+        IF (JOB_X == 0 .OR. JOB_X == 2) THEN ! Process Vorticity and Buoyancy
+            IF (JOB_Y == 0 .OR. JOB_Y == 1) CALL PROCESS_AND_SAVE('vorR', I, PSI, CHI, B)
+            IF (JOB_Y == 0 .OR. JOB_Y == 2) CALL PROCESS_AND_SAVE('vorTh', I, PSI, CHI, B)
+            IF (JOB_Y == 0 .OR. JOB_Y == 3) CALL PROCESS_AND_SAVE('vorZ', I, PSI, CHI, B)
+            IF ((JOB_Y == 0 .OR. JOB_Y == 4) .AND. (JOB_X == 2)) THEN
+                CALL PROCESS_AND_SAVE('buoyancy', I, PSI, CHI, B)
+            ENDIF
+        ELSE IF ((JOB_X > 2) .OR. (JOB_X < 0) )THEN
+            IF (MPI_RANK.EQ.0) WRITE(*,*) 'POSTPROCESS: Invalid JOB field type (X digit).'
+        ENDIF
+
+        CALL DEALLOCATE(PSI); CALL DEALLOCATE(CHI); CALL DEALLOCATE(B)
+        IF (POSTPROCESS%START(JOB_IND) .EQ. -1) EXIT
+
+    ENDDO
 ENDDO
 
 !> final printout
@@ -134,6 +175,69 @@ call MPI_BARRIER(MPI_COMM_IVP,IERR)
 call MPI_FINALIZE(IERR)
 
 CONTAINS
+!=======================================================================
+!=================== PROGRAM-DEPENDENT SUBROUTINES =====================
+!=======================================================================
+LOGICAL FUNCTION FILE_EXISTS(FILENAME)
+!=======================================================================
+! [USAGE]:
+! Checks if a file exists on the filesystem.
+! [PARAMETERS]:
+! FILENAME >> Full path to the file to check
+! [RETURNS]:
+! FILE_EXISTS >> .TRUE. if file exists, .FALSE. otherwise
+!=======================================================================
+    IMPLICIT NONE
+    CHARACTER(LEN=*), INTENT(IN) :: FILENAME
+    
+    INQUIRE(FILE=FILENAME, EXIST=FILE_EXISTS)
+    
+END FUNCTION FILE_EXISTS
+!=======================================================================
+SUBROUTINE HIGH_PASS_FILTER(A, CUTOFF_RATIO)
+    IMPLICIT NONE
+    TYPE(SCALAR), INTENT(INOUT) :: A
+    REAL(P8), INTENT(IN), OPTIONAL :: CUTOFF_RATIO
+    
+    REAL(P8) :: CUTOFF
+    INTEGER :: NN, MM, KK, NR_CUTOFF, NTH_CUTOFF, NX_CUTOFF_MIN, NX_CUTOFF_MAX
+    INTEGER :: GLOBAL_MM, GLOBAL_KK
+    
+    IF (.NOT. PRESENT(CUTOFF_RATIO)) THEN
+        CUTOFF = 2.0D0/3.0D0
+    ELSE
+        CUTOFF = CUTOFF_RATIO
+    ENDIF
+    
+    NR_CUTOFF = INT(NRCHOP / 2.0d0)
+    NTH_CUTOFF = INT(NTCHOP * CUTOFF)
+    NX_CUTOFF_MIN = INT(NXCHOP * CUTOFF)
+    NX_CUTOFF_MAX = 2*NXCHOP+1-NX_CUTOFF_MIN
+    
+    CALL TOFF(A)
+    
+    !$OMP PARALLEL DO COLLAPSE(3) PRIVATE(KK, MM, NN, GLOBAL_MM, GLOBAL_KK) SCHEDULE(STATIC)
+    DO KK = 1, SIZE(A%E, 3)
+        DO MM = 1, SIZE(A%E, 2)
+            DO NN = 1, SIZE(A%E, 1)
+                
+                GLOBAL_MM = MM + A%INTH
+                GLOBAL_KK = KK + A%INX
+                
+                ! IF (NN < NR_CUTOFF .OR. GLOBAL_MM < NTH_CUTOFF .OR. GLOBAL_KK <= NX_CUTOFF_MIN .OR. GLOBAL_KK >= NX_CUTOFF_MAX) THEN
+                !     A%E(NN, MM, KK) = (0.0D0, 0.0D0)
+                ! ENDIF
+
+                IF ((GLOBAL_MM .NE. 1) .OR. (GLOBAL_KK .NE. 1)) THEN
+                    A%E(NN, MM, KK) = (0.0D0, 0.0D0)
+                ENDIF
+                
+            ENDDO
+        ENDDO
+    ENDDO
+    !$OMP END PARALLEL DO
+    
+END SUBROUTINE HIGH_PASS_FILTER
 !=======================================================================
 SUBROUTINE PROCESS_AND_SAVE(FIELD_NAME, INDEX, PSII, CHII, BI)
 !=======================================================================
@@ -152,6 +256,8 @@ SUBROUTINE PROCESS_AND_SAVE(FIELD_NAME, INDEX, PSII, CHII, BI)
         WRITE(NUM_STR, '(I3.3)') INDEX
     ENDIF
 
+    CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
+    CALL CHOPSET(3)
     IF (FIELD_NAME(1:3) == 'vel') THEN
         CALL ALLOCATE(RUR); CALL ALLOCATE(RUP); CALL ALLOCATE(UZ)
         CALL PC2VEL(PSII, CHII, RUR, RUP, UZ)
@@ -168,8 +274,6 @@ SUBROUTINE PROCESS_AND_SAVE(FIELD_NAME, INDEX, PSII, CHII, BI)
         END SELECT
         CALL DEALLOCATE(RUR); CALL DEALLOCATE(RUP); CALL DEALLOCATE(UZ)
     ELSE IF (FIELD_NAME(1:3) == 'vor') THEN
-        PSI%E(NRCHOPS(2),2,1) = 0.D0
-        CHI%E(NRCHOPS(2),2,1) = 0.D0
         CALL ALLOCATE(ROR); CALL ALLOCATE(ROP); CALL ALLOCATE(OZ)
         CALL PC2VOR(PSII, CHII, ROR, ROP, OZ)
         SELECT CASE(FIELD_NAME)
@@ -195,28 +299,28 @@ SUBROUTINE PROCESS_AND_SAVE(FIELD_NAME, INDEX, PSII, CHII, BI)
     ! Determine filename and save
     SELECT CASE(JOB_Z)
     CASE(1) ! r-theta slice
-        IF (POSTPROCESS%SLICEINT == 999) THEN
+        IF (POSTPROCESS%SLICEINT(JOB_IND) == 999) THEN
             SLICE_TYPE_STR = '_3D_'
         ELSE
             SLICE_TYPE_STR = '_RTplane_'
         ENDIF
         OUT_FILENAME = TRIM(FIELD_NAME)//TRIM(SLICE_TYPE_STR)//NUM_STR//'.dat'
-        CALL MSAVE_SLICES_IN_RTHETA_PLANE(FIELD, TRIM(ADJUSTL(FILES%SAVEDIR))//OUT_FILENAME, POSTPROCESS%SLICEINT)
+        CALL MSAVE_SLICES_IN_RTHETA_PLANE(FIELD, TRIM(ADJUSTL(FILES%SAVEDIR))//OUT_FILENAME, POSTPROCESS%SLICEINT(JOB_IND))
     CASE(2) ! r-z slice
-        IF (POSTPROCESS%SLICEINT == 999) THEN
+        IF (POSTPROCESS%SLICEINT(JOB_IND) == 999) THEN
             SLICE_TYPE_STR = '_3D_'
         ELSE
             SLICE_TYPE_STR = '_RZplane_'
         ENDIF
         OUT_FILENAME = TRIM(FIELD_NAME)//TRIM(SLICE_TYPE_STR)//NUM_STR//'.dat'
-        CALL MSAVE_SLICES_IN_RZ_PLANE(FIELD, TRIM(ADJUSTL(FILES%SAVEDIR))//OUT_FILENAME, POSTPROCESS%SLICEINT)
+        CALL MSAVE_SLICES_IN_RZ_PLANE(FIELD, TRIM(ADJUSTL(FILES%SAVEDIR))//OUT_FILENAME, POSTPROCESS%SLICEINT(JOB_IND))
     END SELECT
 
+    CALL CHOPSET(-3)
+    CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
     CALL DEALLOCATE(FIELD)
 
 END SUBROUTINE PROCESS_AND_SAVE
-!=======================================================================
-!=================== PROGRAM-DEPENDENT SUBROUTINES =====================
 !=======================================================================
 SUBROUTINE MSAVE_SLICES_IN_RTHETA_PLANE(A,FILENAME,ZPLANE)
 !=======================================================================
@@ -229,7 +333,7 @@ COMPLEX(P8),DIMENSION(:,:,:),ALLOCATABLE:: A_GLB
 
 IF(A%SPACE.NE.PPP_SPACE) THEN
     IF (MPI_RANK.EQ.0) WRITE(*,*) 'MSAVE_SLICES_IN_RTHETA_PLANE: INPUT NOT IN PPP SPACE'
-    CALL MPI_ABORT(MPI_COMM_WORLD,1,IERR)
+    CALL MPI_ABORT(MPI_COMM_IVP,1,IERR)
 ENDIF
 
 ALLOCATE(A_GLB(NDIMR,NDIMTH,NDIMX))
@@ -245,6 +349,8 @@ IF (MPI_RANK.EQ.0) THEN
         WRITE(*,*) 'Valid range is 1 to', NX, 'or 999 for 3D.'
     ENDIF
 ENDIF
+CALL MPI_BARRIER(MPI_COMM_IVP,IERR)
+DEALLOCATE(A_GLB)
 
 RETURN
 END SUBROUTINE MSAVE_SLICES_IN_RTHETA_PLANE
@@ -260,7 +366,7 @@ COMPLEX(P8),DIMENSION(:,:,:),ALLOCATABLE:: A_GLB
 
 IF(A%SPACE.NE.PPP_SPACE) THEN
     IF (MPI_RANK.EQ.0) WRITE(*,*) 'MSAVE_SLICES_IN_RZ_PLANE: INPUT NOT IN PPP SPACE'
-    CALL MPI_ABORT(MPI_COMM_WORLD,1,IERR)
+    CALL MPI_ABORT(MPI_COMM_IVP,1,IERR)
 ENDIF
 
 ALLOCATE(A_GLB(NDIMR,NDIMTH,NDIMX))
@@ -276,6 +382,8 @@ IF (MPI_RANK.EQ.0) THEN
         WRITE(*,*) 'Valid range is 1 to', NTH, 'or 999 for 3D.'
     ENDIF
 ENDIF
+CALL MPI_BARRIER(MPI_COMM_IVP,IERR)
+DEALLOCATE(A_GLB)
 
 RETURN
 
@@ -285,19 +393,20 @@ SUBROUTINE DIVR(A)
 !=======================================================================
 IMPLICIT NONE
 TYPE(SCALAR), INTENT(INOUT) :: A
-INTEGER :: NN, MM, KK, INR
+INTEGER :: NN, MM, KK, INR, NN_BOUND
 
 IF (A%SPACE.NE.PPP_SPACE) THEN
     CALL MPRINT('DIVR: INPUT NOT IN PPP SPACE')
-    CALL MPI_ABORT(MPI_COMM_WORLD,ERR_FLAGS%SCALAR3,IERR)
+    CALL MPI_ABORT(MPI_COMM_IVP,ERR_FLAGS%SCALAR3,IERR)
 ENDIF
 
 INR = A%INR
+NN_BOUND = MIN(SIZE(A%E,1), NR - INR)
 
 !$OMP PARALLEL DO COLLAPSE(3) 
 DO KK = 1, SIZE(A%E,3)
     DO MM = 1, SIZE(A%E,2)
-        DO NN = 1, SIZE(A%E,1)
+        DO NN = 1, NN_BOUND
             A%E(NN,MM,KK) = A%E(NN,MM,KK) / TFM%R(NN+INR)
         ENDDO
     ENDDO
