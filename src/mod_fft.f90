@@ -128,7 +128,7 @@ PUBLIC:: PRINT_MPI_STRATEGY, MPRINT
 ! PUBLIC:: SUBARRAY
 
 ! =========================== UTILITY FUNCS ============================
-PUBLIC:: local_size, local_index, local_proc, count_proc
+PUBLIC:: local_size, local_index, local_proc, count_proc, is_multi_node
 
 !=======================================================================
 !============================ INTERFACES ===============================
@@ -1555,7 +1555,7 @@ SUBROUTINE EXCHANGE_3DCOMPLEX_FAST(COMM,ARRAY_PROC_OLD,DATA_TYPE_OLD &
     INTEGER,DIMENSION(:),INTENT(IN):: DATA_TYPE_OLD, DATA_TYPE_NEW
 
     INTEGER:: I , NPROC_COMM
-    INTEGER,DIMENSION(:),ALLOCATABLE:: counts, displs, DATA_TYPE_OLD_COPY
+    INTEGER,DIMENSION(:),ALLOCATABLE:: counts, displs
 
     ! CHECK
     IF (RANK(ARRAY_PROC_OLD).NE.NDIM) THEN
@@ -1578,8 +1578,8 @@ SUBROUTINE EXCHANGE_3DCOMPLEX_FAST(COMM,ARRAY_PROC_OLD,DATA_TYPE_OLD &
     CALL MPI_COMM_SIZE(COMM,NPROC_COMM,IERR)
     ALLOCATE(counts(0:NPROC_COMM-1))
     ALLOCATE(displs(0:NPROC_COMM-1))
-    ALLOCATE(DATA_TYPE_OLD_COPY(0:NPROC_COMM-1))
-    DATA_TYPE_OLD_COPY(0:NPROC_COMM-1) = DATA_TYPE_OLD(:)
+    ! ALLOCATE(DATA_TYPE_OLD_COPY(0:NPROC_COMM-1))
+    ! DATA_TYPE_OLD_COPY(0:NPROC_COMM-1) = DATA_TYPE_OLD(:)
 
     DO I = 0,NPROC_COMM-1
     counts(I) = 1; ! SWAP ONE SUBARRAY A TIME
@@ -1596,15 +1596,20 @@ end SUBROUTINE EXCHANGE_3DCOMPLEX_FAST
 SUBROUTINE SUBCOMM_CART(COMM,NDIM,SUBCOMMS)
 ! ======================================================================
 ! [USAGE]:
-! CREATE COMMUNICATORS (SUBCOMMS(I)) FOR EACH DIMENSION(I) THAT HAS CART
-! ESIAN TOPOLOGY. 
-! [EXAMPLE]: 
-! FOR N1xN2xN3 = NPROC_COMM (NDIM = 3) PROCESSORS,
+! CREATE COMMUNICATORS (SUBCOMMS(I)) FOR SUBGROUPS OF PROCOCESSORS ALONG
+! EACH DIMENSION(I) BASED ON A CARTESIAN TOPOLOGY.
+! [EXAMPLE]:
+! - FOR N1xN2 = NPROC_COMM (NDIM = 2) PROCESSORS:
+! NL = MAX(N1,N2), NM = MIN(N1,N2)
+! SUBCOMMS(1) >> NM GROUPS EACH HAS NL PROCS
+! SUBCOMMS(2) >> NL GROUPS EACH HAS NM PROCS
+! - FOR N1xN2xN3 = NPROC_COMM (NDIM = 3) PROCESSORS:
 ! SUBCOMMS(1) >> N2XN3 GROUPS EACH HAS N1 PROCS
 ! SUBCOMMS(2) >> N1XN3 GROUPS EACH HAS N2 PROCS
 ! [NOTES]:
 ! EA PROC CALCULATES ITS CORRESPONDING SUBCOMMS. PROCS ON THE SAME LINE
-! IN I-TH DIM WILL SHARE THE SAME SUBCOMMS(I)
+! IN I-TH DIM WILL SHARE THE SAME SUBCOMMS(I).
+! FOR 2D GRIDS, SUBCOMMS ARE SORTED BY SIZE.
 ! WRITTEN BY JINGE WANG @ SEP 29 2021
 ! ======================================================================
     INTEGER:: COMM
@@ -1655,19 +1660,14 @@ SUBROUTINE SUBCOMM_CART(COMM,NDIM,SUBCOMMS)
             SUBCOMMS(2) = IERR
         ENDIF
     ENDIF
-    ! write(*,*) MPI_RANK,'-',count_proc(SUBCOMMS(1)),'x',count_proc(SUBCOMMS(2)), &
-    !     '-',local_proc(SUBCOMMS(1)), &
-    !     '-',local_proc(SUBCOMMS(2))
 
-    ! FUTURE EDIT NOTE:
+    ! TODO (FUTURE):
     ! FOR NTH = 1 OR NX = 1, MAKE SUBCOMMS(I) HAVE ONE PROC IN EA GROUP
     ! FOR SLAB DECOMP, MAKE SUBCOMMS(I) HAVE ONE PROC IN EA GROUP
     ! (USE MPI_COMM_SPLIT)
 
     MPI_COMM_IVP = COMM_CART
     CALL MPI_COMM_RANK(MPI_COMM_IVP,MPI_RANK,IERR)
-
-    ! CALL MPI_COMM_FREE(COMM_CART,IERR)      
 
 end SUBROUTINE SUBCOMM_CART
 ! ======================================================================
@@ -1676,29 +1676,31 @@ SUBROUTINE MASSEMBLE(LOCAL_ARRAY, GLOBAL_ARRAY, axis)
 ! [USAGE]: 
 ! ASSEMBLE COMPLEX LOCAL ARRAYS INTO GLOBAL ARRAY IN PROC#0
 ! [PARAMETERS]:
-! axis >> axis along which the domain is NOT chopped    
-! MPI_Datatype >> element type of local array (e.g. MPI_INTEGER)
+! axis >> AXIS ALONG WHICH THE DOMAIN IS NOT CHOPPED    
+! MPI_Datatype >> ELEMENT TYPE OF LOCAL ARRAY (E.G. MPI_INTEGER)
+! [NOTES]:
+! WORKS WITH (SUBCOMMS_L,axis,SUBCOMMS_R) OR (axis,SUBCOMMS_L,SUBCOMMS_R).
+! DOES NOT WORK WITH (SUBCOMMS_L,SUBCOMMS_R,axis) * NOT NEEDED IN IVP *
+! USE PUBLIC SUBCOMM_1 (RADIAL/AXIAL DIM) AND SUBCOMM_2 (THETA DIM).
 ! [UPDATES]:
-! CODED BY JINGE WANG @ SEP 19 2021
-! [NOTE1]:
-! SUBCOMMS_L,axis,SUBCOMMS_R
-! or axis,SUBCOMMS_L,SUBCOMMS_R
-! DOES NOT work with SUBCOMMS_L,SUBCOMMS_R,axis (not needed in IVP)
-! [NOTE2]:
-! USE public SUBCOMM_1 and SUBCOMM_2. Need to change their definition to
-! match the actual usage.
 ! WRITTEN BY JINGE WANG @ SEP 29 2021
 ! ======================================================================
     COMPLEX(P8),DIMENSION(:,:,:),INTENT(IN):: LOCAL_ARRAY
     COMPLEX(P8),DIMENSION(:,:,:),INTENT(INOUT):: GLOBAL_ARRAY
     integer,INTENT(IN):: axis 
 
-    INTEGER:: II, JJ, KK, N1_glb, N2_glb, N3_glb, N1_loc, N2_loc, N3_loc, ELEMENT_SIZE 
+    INTEGER:: NN, MM, KK, N1_glb, N2_glb, N3_glb, N1_loc, N2_loc, N3_loc, ELEMENT_SIZE 
     INTEGER(KIND=MPI_ADDRESS_KIND):: EXTEND_SIZE
     INTEGER:: SUBCOMM_L, SUBCOMM_R, MPI_Datatype
     INTEGER:: SUBARRAY_TYPE, SUBARRAY_TYPE_resized, DISPLACEMENT_loc, RECVCOUNT_loc
     integer,DIMENSION(:),ALLOCATABLE:: DISPLACEMENT, RECVCOUNT
     COMPLEX(P8),DIMENSION(:,:,:),ALLOCATABLE:: LOCAL_ARRAY2, SUBGLOBAL_ARRAY, GLOBAL_ARRAY_COPY
+
+    IF (is_multi_node()) THEN
+        CALL MPRINT('MASSEMBLE: USING SAFE VERSION FOR MULTI-NODE')
+        CALL MASSEMBLE_SAFE(LOCAL_ARRAY, GLOBAL_ARRAY, axis)
+        RETURN
+    ENDIF
 
     N1_glb = SIZE(GLOBAL_ARRAY,1)
     N2_glb = SIZE(GLOBAL_ARRAY,2)
@@ -1709,11 +1711,8 @@ SUBROUTINE MASSEMBLE(LOCAL_ARRAY, GLOBAL_ARRAY, axis)
     N3_loc = SIZE(LOCAL_ARRAY,3)
 
     MPI_Datatype = MPI_DOUBLE_COMPLEX
-    IF (CP8_SIZE.EQ.0) THEN
-    CALL MPI_TYPE_SIZE(MPI_Double_Complex,CP8_SIZE,IERR)
-    ENDIF
+    IF (CP8_SIZE.EQ.0) CALL MPI_TYPE_SIZE(MPI_Double_Complex,CP8_SIZE,IERR)
     ELEMENT_SIZE = CP8_SIZE
-
     
     IF (axis.EQ.1) THEN ! axis,SUBCOMMS_L,SUBCOMMS_R => FFF,PFF
     ! PFF: NDIMR    , NTCHOPDIM/N2, NXCHOPDIM/N1 << PFF
@@ -1744,9 +1743,9 @@ SUBROUTINE MASSEMBLE(LOCAL_ARRAY, GLOBAL_ARRAY, axis)
         ALLOCATE(LOCAL_ARRAY2(N2_glb,N3_loc,N1_loc))
 
         DO KK = 1,N1_loc
-            DO JJ = 1,N3_loc
-                DO II = 1,N2_glb
-                    LOCAL_ARRAY2(II,JJ,KK) = LOCAL_ARRAY(KK,II,JJ)
+            DO MM = 1,N3_loc
+                DO NN = 1,N2_glb
+                    LOCAL_ARRAY2(NN,MM,KK) = LOCAL_ARRAY(KK,NN,MM)
                 ENDDO
             ENDDO
         ENDDO
@@ -1774,12 +1773,12 @@ SUBROUTINE MASSEMBLE(LOCAL_ARRAY, GLOBAL_ARRAY, axis)
     CALL MPI_GATHERV(LOCAL_ARRAY2, N1_loc*N2_loc*N3_loc, MPI_Datatype, &
                     SUBGLOBAL_ARRAY, RECVCOUNT, DISPLACEMENT, SUBARRAY_TYPE_resized, &
                     0, SUBCOMM_L, IERR)
+    DEALLOCATE(RECVCOUNT,DISPLACEMENT,LOCAL_ARRAY2)
 
     ! IN THE SUBCOMM_R THAT CONTAINS SUBCOMM_Ls' #0 PROCs: 
     ! GATHER SUBGLOBAL_ARRAY TO FORM GLOBAL_ARRAY in SUBCOMM_R's #0 proc (=> GLOBAL #0 PROC)
     IF (local_proc(SUBCOMM_L).EQ.0) THEN
 
-        DEALLOCATE(RECVCOUNT,DISPLACEMENT)
         ALLOCATE(RECVCOUNT(0:count_proc(SUBCOMM_R)-1))
         ALLOCATE(DISPLACEMENT(0:count_proc(SUBCOMM_R)-1))
         RECVCOUNT_loc = N1_glb*N2_glb*N3_loc
@@ -1802,13 +1801,251 @@ SUBROUTINE MASSEMBLE(LOCAL_ARRAY, GLOBAL_ARRAY, axis)
             GLOBAL_ARRAY = RESHAPE(GLOBAL_ARRAY_COPY,SHAPE(GLOBAL_ARRAY),ORDER = [2,1,3]) ! NEED TO REORDER
             DEALLOCATE(GLOBAL_ARRAY_COPY)
 
-        ENDIF    
+        ENDIF
+
+        DEALLOCATE(RECVCOUNT,DISPLACEMENT)
     ENDIF                 
 
     CALL MPI_TYPE_FREE(SUBARRAY_TYPE_resized,IERR)
-    DEALLOCATE(LOCAL_ARRAY2,SUBGLOBAL_ARRAY,RECVCOUNT,DISPLACEMENT)
+    DEALLOCATE(SUBGLOBAL_ARRAY)
 
 END SUBROUTINE MASSEMBLE
+!=======================================================================
+SUBROUTINE MASSEMBLE_SAFE(LOCAL_ARRAY, GLOBAL_ARRAY, axis)
+! ======================================================================
+! [USAGE]: 
+! ASSEMBLE COMPLEX LOCAL ARRAYS INTO GLOBAL ARRAY IN PROC#0
+! [PARAMETERS]:
+! axis >> AXIS ALONG WHICH THE DOMAIN IS NOT CHOPPED    
+! MPI_Datatype >> ELEMENT TYPE OF LOCAL ARRAY (E.G. MPI_INTEGER)
+! [NOTES]:
+! WORKS WITH (SUBCOMMS_L,axis,SUBCOMMS_R) OR (axis,SUBCOMMS_L,SUBCOMMS_R).
+! DOES NOT WORK WITH (SUBCOMMS_L,SUBCOMMS_R,axis) * NOT NEEDED IN IVP *
+! USE PUBLIC SUBCOMM_1 (RADIAL/AXIAL DIM) AND SUBCOMM_2 (THETA DIM).
+! [VERSION: SAFE - Simple Reshape]
+! This version is designed to work around the suspected MPI/OFI bug
+! where `MPI_TYPE_COMMIT` on a temporary datatype corrupts the
+! global MPI state on multi-node runs.
+! This implementation avoids all temporary MPI datatypes. It uses a
+! two-stage gather with simple reshapes:
+! 1.  Pre-reshape local data (e.g., N1,N2,N3 -> N1,N3,N2).
+! 2.  Gathers these pre-reshaped 1D buffers on a 'local root'.
+! 3.  The 'local root' reshapes the 1D buffer into a 3D jumbled
+!     array (e.g., (N1_glb, N3_loc, N2_glb)).
+! 4.  This 3D jumbled array is reshaped again with a new ORDER
+!     to create the correctly-ordered 3D SUBGLOBAL_ARRAY.
+! 5.  These SUBGLOBAL_ARRAYs are then gathered to the 'global root'.
+! [UPDATES]:
+! WRITTEN BY JINGE WANG @ OCT 29 2025
+! ======================================================================
+    IMPLICIT NONE
+    COMPLEX(P8),DIMENSION(:,:,:),INTENT(IN):: LOCAL_ARRAY
+    COMPLEX(P8),DIMENSION(:,:,:),INTENT(INOUT):: GLOBAL_ARRAY
+    integer,INTENT(IN):: axis 
+
+    INTEGER:: NN, MM, KK
+    INTEGER:: N1_glb, N2_glb, N3_glb, N1_loc, N2_loc, N3_loc
+    INTEGER:: SUBCOMM_L, SUBCOMM_R, MPI_Datatype
+    INTEGER:: LOCAL_ROOT, GLOBAL_ROOT
+    INTEGER:: NPROC_L, NPROC_R
+    
+    ! --- Stage 1 (On-Node) variables ---
+    INTEGER:: SENDCOUNT_L1
+    INTEGER,DIMENSION(:),ALLOCATABLE:: DISPLS_L1, RECVCOUNTS_L1
+    COMPLEX(P8),DIMENSION(:,:,:),ALLOCATABLE:: LOCAL_ARRAY2
+    COMPLEX(P8),DIMENSION(:),ALLOCATABLE::   CONTIG_BUFFER_L1
+    
+    ! --- Stage 1.5 (Simple Reshape) variables ---
+    COMPLEX(P8),DIMENSION(:,:,:),ALLOCATABLE:: SUBGLOBAL_ARRAY_0, SUBGLOBAL_ARRAY_1
+
+    ! --- Stage 2 (Inter-Node) variables ---
+    INTEGER:: SENDCOUNT_L2
+    integer,DIMENSION(:),ALLOCATABLE:: DISPLS_L2, RECVCOUNTS_L2
+    COMPLEX(P8),DIMENSION(:),ALLOCATABLE::   CONTIG_BUFFER_L2
+    COMPLEX(P8),DIMENSION(:,:,:),ALLOCATABLE:: GLOBAL_ARRAY_COPY
+
+    ! ==================================================================
+    ! PREPARATION
+    ! ==================================================================
+    N1_glb = SIZE(GLOBAL_ARRAY,1)
+    N2_glb = SIZE(GLOBAL_ARRAY,2)
+    N3_glb = SIZE(GLOBAL_ARRAY,3)
+
+    N1_loc = SIZE(LOCAL_ARRAY,1)
+    N2_loc = SIZE(LOCAL_ARRAY,2)
+    N3_loc = SIZE(LOCAL_ARRAY,3)
+
+    MPI_Datatype = MPI_DOUBLE_COMPLEX
+    GLOBAL_ROOT = 0
+    LOCAL_ROOT = 0
+    
+    IF (axis.EQ.1) THEN ! axis,SUBCOMM_L,SUBCOMM_R => FFF,PFF
+        ! Gathers along Azimuthal (dim 2)
+        SUBCOMM_L = SUBCOMM_2
+        SUBCOMM_R = SUBCOMM_1
+        
+        NPROC_L = count_proc(SUBCOMM_L)
+        NPROC_R = count_proc(SUBCOMM_R)
+
+        ! Pre-reshape local array (N1, N2, N3) -> (N1, N3, N2)
+        ALLOCATE(LOCAL_ARRAY2(N1_loc, N3_loc, N2_loc))
+        LOCAL_ARRAY2 = RESHAPE(LOCAL_ARRAY, SHAPE(LOCAL_ARRAY2), ORDER=[1,3,2])
+        SENDCOUNT_L1 = N1_loc * N2_loc * N3_loc
+
+    ELSEIF (axis.EQ.2) THEN ! SUBCOMMS_L,axis,SUBCOMM_R => PPP,PFP
+        ! Gathers along Radial (dim 1)
+        SUBCOMM_L = SUBCOMM_1
+        SUBCOMM_R = SUBCOMM_2
+
+        NPROC_L = count_proc(SUBCOMM_L)
+        NPROC_R = count_proc(SUBCOMM_R)
+
+        ! Pre-reshape local array (N1, N2, N3) -> (N2, N3, N1)
+        ALLOCATE(LOCAL_ARRAY2(N2_loc, N3_loc, N1_loc))
+        DO KK = 1,N1_loc
+            DO MM = 1,N3_loc
+                DO NN = 1,N2_loc
+                    LOCAL_ARRAY2(NN,MM,KK) = LOCAL_ARRAY(KK,NN,MM)
+                ENDDO
+            ENDDO
+        ENDDO
+        SENDCOUNT_L1 = N1_loc * N2_loc * N3_loc
+
+    ELSE
+        IF (MPI_RANK.EQ.0) WRITE(*,*) 'MASSEMBLE_SAFE: undefined for the current axis'
+        RETURN
+    ENDIF
+
+    ! ==================================================================
+    ! STAGE 1: ON-NODE GATHER (into 1D contiguous buffer)
+    ! ==================================================================
+    
+    ALLOCATE(RECVCOUNTS_L1(0:NPROC_L-1))
+    ALLOCATE(DISPLS_L1(0:NPROC_L-1))
+
+    ! All procs tell the local root how much data they are sending
+    CALL MPI_GATHER(SENDCOUNT_L1, 1, MPI_INTEGER, &
+                    RECVCOUNTS_L1, 1, MPI_INTEGER, &
+                    LOCAL_ROOT, SUBCOMM_L, IERR)
+
+    ! Local root calculates displacements for the 1D buffer
+    IF (local_proc(SUBCOMM_L) == LOCAL_ROOT) THEN
+        DISPLS_L1(0) = 0
+        DO NN = 1, NPROC_L - 1
+            DISPLS_L1(NN) = DISPLS_L1(NN-1) + RECVCOUNTS_L1(NN-1)
+        ENDDO
+        ! Allocate the contiguous buffer to hold all jumbled data
+        ALLOCATE(CONTIG_BUFFER_L1(DISPLS_L1(NPROC_L-1) + RECVCOUNTS_L1(NPROC_L-1)))
+    ENDIF
+
+    ! Perform the gather on the PRE-RESHAPED array.
+    CALL MPI_GATHERV(LOCAL_ARRAY2, SENDCOUNT_L1, MPI_Datatype, &
+                    CONTIG_BUFFER_L1, RECVCOUNTS_L1, DISPLS_L1, MPI_Datatype, &
+                    LOCAL_ROOT, SUBCOMM_L, IERR)
+    DEALLOCATE(LOCAL_ARRAY2, RECVCOUNTS_L1, DISPLS_L1) ! Free the pre-shaped array
+    
+    ! ==================================================================
+    ! STAGE 1.5: SIMPLE RE-ORDER ON LOCAL ROOT
+    ! ==================================================================
+    
+    IF (local_proc(SUBCOMM_L) == LOCAL_ROOT) THEN
+        IF (axis.EQ.1) THEN
+            ! CONTIG_BUFFER_L1 is [ (N1,N3,N2)_0 | (N1,N3,N2)_1 | ... ]
+            ! We know N1_loc = N1_glb, and N3_loc is constant for this group.
+            ! We also know SUM(N2_loc_i) = N2_glb.
+            
+            ! 1. Reshape the 1D buffer into a 3D jumbled array (N1, N3, N2)
+            ALLOCATE(SUBGLOBAL_ARRAY_0(N1_glb, N3_loc, N2_glb))
+            SUBGLOBAL_ARRAY_0 = RESHAPE(CONTIG_BUFFER_L1, SHAPE(SUBGLOBAL_ARRAY_0))
+            DEALLOCATE(CONTIG_BUFFER_L1)
+
+            ! 2. Reshape again with new ORDER to get (N1, N2, N3)
+            ALLOCATE(SUBGLOBAL_ARRAY_1(N1_glb, N2_glb, N3_loc))
+            SUBGLOBAL_ARRAY_1 = RESHAPE(SUBGLOBAL_ARRAY_0, SHAPE(SUBGLOBAL_ARRAY_1), ORDER=[1,3,2])
+            DEALLOCATE(SUBGLOBAL_ARRAY_0)
+
+        ELSEIF (axis.EQ.2) THEN
+            ! CONTIG_BUFFER_L1 is [ (N2,N3,N1)_0 | (N2,N3,N1)_1 | ... ]
+            ! We know N2_loc = N2_glb, and N3_loc is constant for this group.
+            ! We also know SUM(N1_loc_i) = N1_glb.
+
+            ! 1. Reshape the 1D buffer into a 3D jumbled array (N2, N3, N1)
+            ALLOCATE(SUBGLOBAL_ARRAY_0(N2_glb, N3_loc, N1_glb))
+            SUBGLOBAL_ARRAY_0 = RESHAPE(CONTIG_BUFFER_L1, SHAPE(SUBGLOBAL_ARRAY_0))
+            DEALLOCATE(CONTIG_BUFFER_L1)
+
+            ! 2. Reshape again with new ORDER to get (N2, N1, N3)
+            ALLOCATE(SUBGLOBAL_ARRAY_1(N2_glb, N1_glb, N3_loc))
+            SUBGLOBAL_ARRAY_1 = RESHAPE(SUBGLOBAL_ARRAY_0, SHAPE(SUBGLOBAL_ARRAY_1), ORDER=[1,3,2])
+            DEALLOCATE(SUBGLOBAL_ARRAY_0)
+        ENDIF
+    ENDIF
+
+    ! ==================================================================
+    ! STAGE 2: INTER-NODE GATHER (using contiguous SUBGLOBAL_ARRAYs)
+    ! ==================================================================
+
+    ! Only the local roots (one per node) participate in this step
+    IF (local_proc(SUBCOMM_L) == LOCAL_ROOT) THEN
+        ALLOCATE(RECVCOUNTS_L2(0:NPROC_R-1))
+        ALLOCATE(DISPLS_L2(0:NPROC_R-1))
+        
+        ! Sendcount for Stage 2 is the size of our SUBGLOBAL_ARRAY
+        SENDCOUNT_L2 = SIZE(SUBGLOBAL_ARRAY_1)
+
+        ! All local roots tell the global root how much data they send
+        CALL MPI_GATHER(SENDCOUNT_L2, 1, MPI_INTEGER, &
+                        RECVCOUNTS_L2, 1, MPI_INTEGER, &
+                        GLOBAL_ROOT, SUBCOMM_R, IERR)
+
+        ! Global root calculates displacements
+        IF (MPI_RANK == GLOBAL_ROOT) THEN
+            DISPLS_L2(0) = 0
+            DO NN = 1, NPROC_R - 1
+                DISPLS_L2(NN) = DISPLS_L2(NN-1) + RECVCOUNTS_L2(NN-1)
+            ENDDO
+            ! Allocate the final contiguous buffer on rank 0
+            ALLOCATE(CONTIG_BUFFER_L2(DISPLS_L2(NPROC_R-1) + RECVCOUNTS_L2(NPROC_R-1)))
+        ENDIF
+        
+        ! Perform the gather into the final contiguous buffer
+        CALL MPI_GATHERV(SUBGLOBAL_ARRAY_1, SENDCOUNT_L2, MPI_Datatype, &
+                        CONTIG_BUFFER_L2, RECVCOUNTS_L2, DISPLS_L2, MPI_Datatype, &
+                        GLOBAL_ROOT, SUBCOMM_R, IERR)
+        
+        DEALLOCATE(SUBGLOBAL_ARRAY_1, RECVCOUNTS_L2, DISPLS_L2)
+    ENDIF
+
+    ! ==================================================================
+    ! STAGE 3: FINAL RESHAPE ON GLOBAL ROOT
+    ! ==================================================================
+    IF (MPI_RANK == GLOBAL_ROOT) THEN
+        IF (axis.EQ.1) THEN
+            ! We gathered in order (N1_glb, N2_glb, N3_loc) * NPROC_R
+            ! The final shape is (N1_glb, N2_glb, N3_glb)
+            GLOBAL_ARRAY = RESHAPE(CONTIG_BUFFER_L2, SHAPE(GLOBAL_ARRAY), ORDER=[1,2,3])
+            DEALLOCATE(CONTIG_BUFFER_L2)
+
+        ELSEIF (axis.EQ.2) THEN
+            ! We gathered in order (N2_glb, N1_glb, N3_loc) * NPROC_R
+            ! The final shape is (N1_glb, N2_glb, N3_glb)
+            
+            ! 1. Reshape buffer to (N2_glb, N1_glb, N3_glb)
+            ALLOCATE(GLOBAL_ARRAY_COPY(N2_glb, N1_glb, N3_glb))
+            GLOBAL_ARRAY_COPY = RESHAPE(CONTIG_BUFFER_L2, SHAPE(GLOBAL_ARRAY_COPY), ORDER=[1,2,3])
+            DEALLOCATE(CONTIG_BUFFER_L2)
+
+            ! 2. Reshape with ORDER to get (N1_glb, N2_glb, N3_glb)
+            ! This matches your original code's final re-order.
+            GLOBAL_ARRAY = RESHAPE(GLOBAL_ARRAY_COPY, SHAPE(GLOBAL_ARRAY), ORDER=[2,1,3])
+            DEALLOCATE(GLOBAL_ARRAY_COPY)
+        ENDIF
+    ENDIF
+    
+    ! All processes must wait for rank 0 to finish
+    CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
+
+END SUBROUTINE MASSEMBLE_SAFE
 ! ======================================================================
 SUBROUTINE MDISASSEMBLE(GLOBAL_ARRAY, LOCAL_ARRAY, axis)
 ! ======================================================================
@@ -1832,7 +2069,7 @@ SUBROUTINE MDISASSEMBLE(GLOBAL_ARRAY, LOCAL_ARRAY, axis)
     COMPLEX(P8),DIMENSION(:,:,:),INTENT(IN):: GLOBAL_ARRAY
     integer,INTENT(IN):: axis
 
-    INTEGER:: II, JJ, KK, N1_glb, N2_glb, N3_glb, N1_loc, N2_loc, N3_loc, ELEMENT_SIZE
+    INTEGER:: NN, MM, KK, N1_glb, N2_glb, N3_glb, N1_loc, N2_loc, N3_loc, ELEMENT_SIZE
     INTEGER(KIND=MPI_ADDRESS_KIND):: EXTEND_SIZE
     INTEGER:: SUBCOMM_L, SUBCOMM_R, MPI_Datatype
     INTEGER:: SUBARRAY_TYPE, SUBARRAY_TYPE_resized, DISPLACEMENT_loc, RECVCOUNT_loc
@@ -2518,4 +2755,41 @@ function local_proc(COMM)
 
     end function create_new_type3D
 ! ======================================================================
+    logical function is_multi_node()
+! ======================================================================
+! [USAGE]:
+! CHECKS IF THE JOB IS RUNNING ON MORE THAN ONE PHYSICAL NODE.
+! [RETURNS]:
+! .TRUE. IF THE JOB SPANS MULTIPLE NODES.
+! .FALSE. IF ALL PROCESSES ARE ON A SINGLE NODE.
+! [METHOD]:
+! IT USES MPI_COMM_SPLIT_TYPE WITH MPI_COMM_TYPE_SHARED TO CREATE
+! A NEW COMMUNICATOR (SHM_COMM) FOR EACH NODE, CONTAINING ONLY THE
+! PROCESSES THAT SHARE MEMORY. 
+! IT COMPARES THE SIZE OF THIS NEW COMMUNICATOR (SHM_SIZE) WITH
+! THE SIZE OF THE FULL COMMUNICATOR (WORLD_SIZE). IF THEY ARE
+! DIFFERENT, THE JOB MUST BE MULTI-NODE.
+! ======================================================================
+    IMPLICIT NONE    
+    INTEGER :: SHM_COMM, SHM_SIZE, WORLD_SIZE
+    INTEGER :: SHM_RANK, IERR_CHECK
+    
+    ! CREATE A NEW COMMUNICATOR GROUPING PROCESSES BY SHARED MEMORY (I.E., BY NODE)
+    ! ALL PROCESSES ON THE SAME NODE WILL BE IN THE SAME SHM_COMM.
+    CALL MPI_COMM_SPLIT_TYPE(MPI_COMM_IVP, MPI_COMM_TYPE_SHARED, &
+                             MPI_RANK, MPI_INFO_NULL, SHM_COMM, IERR_CHECK)
+    
+    ! GET THE SIZE OF OUR NEW "SHARED MEMORY" COMMUNICATOR
+    CALL MPI_COMM_SIZE(SHM_COMM, SHM_SIZE, IERR_CHECK)
+    
+    ! GET THE SIZE OF THE TOTAL JOB
+    CALL MPI_COMM_SIZE(MPI_COMM_IVP, WORLD_SIZE, IERR_CHECK)    
+    CALL MPI_COMM_FREE(SHM_COMM, IERR_CHECK)
+    
+    ! THE RESULT: IF THE SIZE OF OUR NODE-LOCAL COMMUNICATOR IS
+    ! LESS THAN THE TOTAL WORLD SIZE, THIS IS A MULTI-NODE RUN.
+    is_multi_node = (SHM_SIZE .NE. WORLD_SIZE)
+    
+    END FUNCTION is_multi_node
+!=======================================================================
 END MODULE MOD_FFT

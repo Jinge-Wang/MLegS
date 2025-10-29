@@ -136,25 +136,76 @@ DO JOB_IND = 1, JOB_NUM
             CALL HIGH_PASS_FILTER(CHI)
             CALL HIGH_PASS_FILTER(B)
         ENDIF
+        
+        ! --- 1. Process Velocity Fields ---
+        IF (JOB_X == 0 .OR. JOB_X == 1) THEN 
+            BLOCK
+                TYPE(SCALAR) :: RUR, RUP, UZ
+                IF (MPI_RANK.EQ.0) WRITE(*,*) 'Computing velocity fields for snapshot', I, '...'
+                CALL ALLOCATE(RUR); CALL ALLOCATE(RUP); CALL ALLOCATE(UZ)
+                CALL CHOPSET(3)
+                CALL PC2VEL(PSI, CHI, RUR, RUP, UZ)
 
-        ! Process and save based on JOB
-        IF (JOB_X == 0 .OR. JOB_X == 1) THEN ! Process Velocity and Buoyancy
-            IF (JOB_Y == 0 .OR. JOB_Y == 1) CALL PROCESS_AND_SAVE('velR', I, PSI, CHI, B)
-            IF (JOB_Y == 0 .OR. JOB_Y == 2) CALL PROCESS_AND_SAVE('velTh', I, PSI, CHI, B)
-            IF (JOB_Y == 0 .OR. JOB_Y == 3) CALL PROCESS_AND_SAVE('velZ', I, PSI, CHI, B)
-            IF (JOB_Y == 0 .OR. JOB_Y == 4) THEN
-                CALL PROCESS_AND_SAVE('buoyancy', I, PSI, CHI, B)
+                ! Save Radial Velocity (velR)
+                IF (JOB_Y == 0 .OR. JOB_Y == 1) THEN
+                    CALL SAVE_FIELD('velR', I, RUR, .TRUE.)
+                ENDIF
+                ! Save Azimuthal Velocity (velTh)
+                IF (JOB_Y == 0 .OR. JOB_Y == 2) THEN
+                    CALL SAVE_FIELD('velTh', I, RUP, .TRUE.)
+                ENDIF
+                ! Save Axial Velocity (velZ)
+                IF (JOB_Y == 0 .OR. JOB_Y == 3) THEN
+                     CALL SAVE_FIELD('velZ', I, UZ, .FALSE.)
+                ENDIF
+                
+                CALL CHOPSET(-3)
+                CALL DEALLOCATE(RUR); CALL DEALLOCATE(RUP); CALL DEALLOCATE(UZ)
+            END BLOCK
+        ENDIF
+
+        ! --- 2. Process Vorticity Fields ---
+        IF (JOB_X == 0 .OR. JOB_X == 2) THEN 
+            BLOCK
+                TYPE(SCALAR) :: ROR, ROP, OZ
+                IF (MPI_RANK.EQ.0) WRITE(*,*) 'Computing vorticity fields for snapshot', I, '...'
+                CALL ALLOCATE(ROR); CALL ALLOCATE(ROP); CALL ALLOCATE(OZ)
+                CALL CHOPSET(3)
+                CALL PC2VOR(PSI, CHI, ROR, ROP, OZ)
+
+                ! Save Radial Vorticity (vorR)
+                IF (JOB_Y == 0 .OR. JOB_Y == 1) THEN
+                    CALL SAVE_FIELD('vorR', I, ROR, .TRUE.)
+                ENDIF
+                ! Save Azimuthal Vorticity (vorTh)
+                IF (JOB_Y == 0 .OR. JOB_Y == 2) THEN
+                    CALL SAVE_FIELD('vorTh', I, ROP, .TRUE.)
+                ENDIF
+                ! Save Axial Vorticity (vorZ)
+                IF (JOB_Y == 0 .OR. JOB_Y == 3) THEN
+                    CALL SAVE_FIELD('vorZ', I, OZ, .FALSE.)
+                ENDIF
+                
+                CALL CHOPSET(-3)
+                CALL DEALLOCATE(ROR); CALL DEALLOCATE(ROP); CALL DEALLOCATE(OZ)
+            END BLOCK
+        ENDIF
+
+        ! --- 3. Process Buoyancy Field ---
+        ! This logic saves buoyancy if requested (JOB_Y 0 or 4)
+        ! and any valid field type (JOB_X 0, 1, or 2) was selected.
+        IF (JOB_Y == 0 .OR. JOB_Y == 4) THEN
+            IF (JOB_X >= 0 .AND. JOB_X <= 2) THEN
+                IF (MPI_RANK.EQ.0) WRITE(*,*) 'Computing buoyancy field for snapshot', I, '...'
+                ! Buoyancy is loaded as 'B' and is already in spectral space.
+                ! We pass .FALSE. for DO_DIVR as it doesn't need 1/r scaling.
+                ! NOTE: This modifies 'B' in-place to save memory.
+                CALL SAVE_FIELD('buoyancy', I, B, .FALSE.)
             ENDIF
         ENDIF
 
-        IF (JOB_X == 0 .OR. JOB_X == 2) THEN ! Process Vorticity and Buoyancy
-            IF (JOB_Y == 0 .OR. JOB_Y == 1) CALL PROCESS_AND_SAVE('vorR', I, PSI, CHI, B)
-            IF (JOB_Y == 0 .OR. JOB_Y == 2) CALL PROCESS_AND_SAVE('vorTh', I, PSI, CHI, B)
-            IF (JOB_Y == 0 .OR. JOB_Y == 3) CALL PROCESS_AND_SAVE('vorZ', I, PSI, CHI, B)
-            IF ((JOB_Y == 0 .OR. JOB_Y == 4) .AND. (JOB_X == 2)) THEN
-                CALL PROCESS_AND_SAVE('buoyancy', I, PSI, CHI, B)
-            ENDIF
-        ELSE IF ((JOB_X > 2) .OR. (JOB_X < 0) )THEN
+        ! --- 4. Handle Invalid JOB_X ---
+        IF ((JOB_X > 2) .OR. (JOB_X < 0)) THEN
             IF (MPI_RANK.EQ.0) WRITE(*,*) 'POSTPROCESS: Invalid JOB field type (X digit).'
         ENDIF
 
@@ -180,12 +231,9 @@ CONTAINS
 !=======================================================================
 LOGICAL FUNCTION FILE_EXISTS(FILENAME)
 !=======================================================================
-! [USAGE]:
-! Checks if a file exists on the filesystem.
-! [PARAMETERS]:
-! FILENAME >> Full path to the file to check
-! [RETURNS]:
-! FILE_EXISTS >> .TRUE. if file exists, .FALSE. otherwise
+!> @brief checks if a file exists on the filesystem.
+!> @param FILENAME (in) full path to the file to check
+!> @retval FILE_EXISTS .true. if file exists, .false. otherwise
 !=======================================================================
     IMPLICIT NONE
     CHARACTER(LEN=*), INTENT(IN) :: FILENAME
@@ -195,6 +243,11 @@ LOGICAL FUNCTION FILE_EXISTS(FILENAME)
 END FUNCTION FILE_EXISTS
 !=======================================================================
 SUBROUTINE HIGH_PASS_FILTER(A, CUTOFF_RATIO)
+!=======================================================================
+!> @brief zeroes out low-frequency spectral coefficients.
+!> @param A (inout) scalar field to be filtered.
+!> @param CUTOFF_RATIO (in, optional) cutoff ratio, default 2/3.
+!=======================================================================
     IMPLICIT NONE
     TYPE(SCALAR), INTENT(INOUT) :: A
     REAL(P8), INTENT(IN), OPTIONAL :: CUTOFF_RATIO
@@ -239,13 +292,26 @@ SUBROUTINE HIGH_PASS_FILTER(A, CUTOFF_RATIO)
     
 END SUBROUTINE HIGH_PASS_FILTER
 !=======================================================================
-SUBROUTINE PROCESS_AND_SAVE(FIELD_NAME, INDEX, PSII, CHII, BI)
+SUBROUTINE SAVE_FIELD(FIELD_NAME, INDEX, FIELD, DO_DIVR)
 !=======================================================================
+!> @brief takes a spectral field, transforms it to physical space,
+!>        optionally scales it, and saves the requested slice.
+!>
+!> @note this subroutine modifies FIELD in-place.
+!>       at exit, FIELD will be in physical space and,
+!>       if DO_DIVR is .true., will have been divided by 'r'.
+!>
+!> @param FIELD_NAME (in) name of the field (e.g., 'velR', 'vorTh')
+!> @param INDEX      (in) snapshot index (or -1 for initial)
+!> @param FIELD      (inout) the scalar field (in spectral space)
+!> @param DO_DIVR    (in) logical flag. if .true., call DIVR (divide by 'r').
+!=======================================================================
+    IMPLICIT NONE
     CHARACTER(LEN=*), INTENT(IN) :: FIELD_NAME
     INTEGER, INTENT(IN) :: INDEX
-    TYPE(SCALAR), INTENT(IN) :: PSII, CHII, BI
+    TYPE(SCALAR), INTENT(INOUT) :: FIELD
+    LOGICAL, INTENT(IN) :: DO_DIVR
 
-    TYPE(SCALAR) :: FIELD, RUR, RUP, UZ, ROR, ROP, OZ
     CHARACTER(LEN=72) :: OUT_FILENAME
     CHARACTER(LEN=3) :: NUM_STR
     CHARACTER(LEN=15) :: SLICE_TYPE_STR
@@ -256,44 +322,9 @@ SUBROUTINE PROCESS_AND_SAVE(FIELD_NAME, INDEX, PSII, CHII, BI)
         WRITE(NUM_STR, '(I3.3)') INDEX
     ENDIF
 
-    CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
-    CALL CHOPSET(3)
-    IF (FIELD_NAME(1:3) == 'vel') THEN
-        CALL ALLOCATE(RUR); CALL ALLOCATE(RUP); CALL ALLOCATE(UZ)
-        CALL PC2VEL(PSII, CHII, RUR, RUP, UZ)
-        SELECT CASE(FIELD_NAME)
-        CASE('velR')
-            CALL TOFP(RUR); CALL DIVR(RUR)
-            CALL ALLOCATE(FIELD, RUR%SPACE); FIELD = RUR
-        CASE('velTh')
-            CALL TOFP(RUP); CALL DIVR(RUP)
-            CALL ALLOCATE(FIELD, RUP%SPACE); FIELD = RUP
-        CASE('velZ')
-            CALL TOFP(UZ)
-            CALL ALLOCATE(FIELD, UZ%SPACE); FIELD = UZ
-        END SELECT
-        CALL DEALLOCATE(RUR); CALL DEALLOCATE(RUP); CALL DEALLOCATE(UZ)
-    ELSE IF (FIELD_NAME(1:3) == 'vor') THEN
-        CALL ALLOCATE(ROR); CALL ALLOCATE(ROP); CALL ALLOCATE(OZ)
-        CALL PC2VOR(PSII, CHII, ROR, ROP, OZ)
-        SELECT CASE(FIELD_NAME)
-        CASE('vorR')
-            CALL TOFP(ROR); CALL DIVR(ROR)
-            CALL ALLOCATE(FIELD, ROR%SPACE); FIELD = ROR
-        CASE('vorTh')
-            CALL TOFP(ROP); CALL DIVR(ROP)
-            CALL ALLOCATE(FIELD, ROP%SPACE); FIELD = ROP
-        CASE('vorZ')
-            CALL TOFP(OZ)
-            CALL ALLOCATE(FIELD, OZ%SPACE); FIELD = OZ
-        END SELECT
-        CALL DEALLOCATE(ROR); CALL DEALLOCATE(ROP); CALL DEALLOCATE(OZ)
-    ELSE IF (FIELD_NAME == 'buoyancy') THEN
-        CALL TOFP(BI)
-        CALL ALLOCATE(FIELD, BI%SPACE); FIELD = BI
-    ELSE
-        IF (MPI_RANK.EQ.0) WRITE(*,*) 'PROCESS_AND_SAVE: Unknown field name:', FIELD_NAME
-        RETURN
+    CALL TOFP(FIELD)
+    IF (DO_DIVR) THEN
+        CALL DIVR(FIELD)
     ENDIF
 
     ! Determine filename and save
@@ -314,15 +345,20 @@ SUBROUTINE PROCESS_AND_SAVE(FIELD_NAME, INDEX, PSII, CHII, BI)
         ENDIF
         OUT_FILENAME = TRIM(FIELD_NAME)//TRIM(SLICE_TYPE_STR)//NUM_STR//'.dat'
         CALL MSAVE_SLICES_IN_RZ_PLANE(FIELD, TRIM(ADJUSTL(FILES%SAVEDIR))//OUT_FILENAME, POSTPROCESS%SLICEINT(JOB_IND))
+    CASE DEFAULT
+        IF (MPI_RANK.EQ.0) WRITE(*,*) 'SAVE_FIELD: Invalid JOB_Z:', JOB_Z
     END SELECT
 
-    CALL CHOPSET(-3)
     CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
-    CALL DEALLOCATE(FIELD)
-
-END SUBROUTINE PROCESS_AND_SAVE
+    
+END SUBROUTINE SAVE_FIELD
 !=======================================================================
 SUBROUTINE MSAVE_SLICES_IN_RTHETA_PLANE(A,FILENAME,ZPLANE)
+!=======================================================================
+!> @brief assembles and saves r-theta slice(s) of a 3d field.
+!> @param A (in) scalar field in ppp_space (physical space).
+!> @param FILENAME (in) output file name.
+!> @param ZPLANE (in) z-index of the plane to save (999 for 3d).
 !=======================================================================
 TYPE(SCALAR):: A
 CHARACTER(LEN=*):: FILENAME
@@ -356,6 +392,11 @@ RETURN
 END SUBROUTINE MSAVE_SLICES_IN_RTHETA_PLANE
 !=======================================================================
 SUBROUTINE MSAVE_SLICES_IN_RZ_PLANE(A,FILENAME,THETAPLANE)
+!=======================================================================
+!> @brief assembles and saves r-z slice(s) of a 3d field.
+!> @param A (in) scalar field in ppp_space (physical space).
+!> @param FILENAME (in) output file name.
+!> @param THETAPLANE (in) theta-index of the plane to save (999 for 3d).
 !=======================================================================
 TYPE(SCALAR):: A
 CHARACTER(LEN=*):: FILENAME
