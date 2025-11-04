@@ -5,7 +5,7 @@
 #SBATCH --nodes=1             # Total # of nodes
 #SBATCH --ntasks-per-node=64  # Total # of MPI tasks per node
 #SBATCH --cpus-per-task=2
-#SBATCH --time=01:30:00
+#SBATCH --time=00:20:00
 #SBATCH -J bsnsq_test
 #SBATCH -o bsnsq_test.o%j
 #SBATCH -e bsnsq_test.e%j
@@ -19,6 +19,22 @@ module list
 
 # REMOVE ALL OUTPUT FILES
 rm -f ./output/*
+
+# --- Automatic Configuration for run_post.sh ---
+nodes=$(grep '^#SBATCH --nodes=' $0 | awk -F= '{print $2}' | awk '{print $1}')
+ntasks_per_node=$(grep '^#SBATCH --ntasks-per-node=' $0 | awk -F= '{print $2}' | awk '{print $1}')
+total_mpi_procs=$((nodes * ntasks_per_node))
+if [ "$total_mpi_procs" -gt 128 ]; then
+    post_nodes=$(((total_mpi_procs + 127) / 128))
+    post_partition="wholenode"
+else
+    post_nodes=1
+    post_partition="shared"
+fi
+sed -i "s/^#SBATCH --nodes=.*/#SBATCH --nodes=$post_nodes/" run_post.sh
+sed -i "s/^#SBATCH --ntasks-per-node=.*/#SBATCH --ntasks-per-node=$((total_mpi_procs / post_nodes))/" run_post.sh
+sed -i "s/^#SBATCH -p.*/#SBATCH -p $post_partition/" run_post.sh
+# --- End of Automatic Configuration ---
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 echo "$SLURM_NTASKS tasks - $SLURM_CPUS_PER_TASK cores per task"

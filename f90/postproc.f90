@@ -98,27 +98,23 @@ DO JOB_IND = 1, JOB_NUM
         CALL MPI_BARRIER(MPI_COMM_IVP,IERR)
 
         ! Check if required PSI file exists before attempting to load
-        IF (POSTPROCESS%START(JOB_IND) .EQ. -1) THEN
+        IF (I .LT. 1) THEN
             IF (.NOT. FILE_EXISTS(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSII)) THEN
-            IF (MPI_RANK.EQ.0) THEN
-                WRITE(*,*) 'POSTPROCESS: Initial condition PSI file missing, skipping...'
-                WRITE(*,*) '  PSI:', TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSII
-            ENDIF
+            IF (MPI_RANK.EQ.0) WRITE(*,*) 'POSTPROCESS: Initial condition missing file ', &
+                TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSII, ' - skipping...'
             CYCLE
             ENDIF
         ELSE
             IF (.NOT. FILE_EXISTS(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSI(I))) THEN
-            IF (MPI_RANK.EQ.0) THEN
-                WRITE(*,*) 'POSTPROCESS: Snapshot', I, 'PSI file missing, skipping...'
-                WRITE(*,*) '  PSI:', TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSI(I)
-            ENDIF
+            IF (MPI_RANK.EQ.0) WRITE(*,*) 'POSTPROCESS: Snapshot', ITOA4(I), 'missing file ', &
+                TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSI(I), ' - skipping...'
             CYCLE
             ENDIF
         ENDIF
 
         ! Load data for the current snapshot
         CALL ALLOCATE(PSI); CALL ALLOCATE(CHI); CALL ALLOCATE(B)
-        IF (POSTPROCESS%START(JOB_IND) .EQ. -1) THEN
+        IF (I .LT. 1) THEN
             CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%PSII,PSI)
             CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%CHII,CHI)
             CALL MLOAD(TRIM(ADJUSTL(FILES%SAVEDIR))//FILES%BI,B)
@@ -210,7 +206,7 @@ DO JOB_IND = 1, JOB_NUM
         ENDIF
 
         CALL DEALLOCATE(PSI); CALL DEALLOCATE(CHI); CALL DEALLOCATE(B)
-        IF (POSTPROCESS%START(JOB_IND) .EQ. -1) EXIT
+        IF (I .EQ. -1) EXIT
 
     ENDDO
 ENDDO
@@ -380,6 +376,8 @@ IF (MPI_RANK.EQ.0) THEN
         CALL MSAVE(A_GLB(:NR,:NTH,:NX), FILENAME)
     ELSE IF (ZPLANE > 0 .AND. ZPLANE <= NX) THEN
         CALL MSAVE(A_GLB(:NR,:NTH,ZPLANE), FILENAME)
+        WRITE(*,*) 'MSAVE_SLICES_IN_RTHETA_PLANE: Saved R-Theta slice at Z =', &
+               TFM%Z(ZPLANE), ',', TFM%Z(ZPLANE)/ZLEN, '(normalized).'
     ELSE
         WRITE(*,*) 'MSAVE_SLICES_IN_RTHETA_PLANE: Invalid ZPLANE index:', ZPLANE
         WRITE(*,*) 'Valid range is 1 to', NX, 'or 999 for 3D.'
@@ -418,6 +416,9 @@ IF (MPI_RANK.EQ.0) THEN
         CALL MSAVE(A_GLB(:NR,:NTH,:NX), FILENAME)
     ELSE IF (THETAPLANE > 0 .AND. THETAPLANE <= NTH) THEN
         CALL MSAVE(A_GLB(:NR,THETAPLANE,:NX), FILENAME)
+        WRITE(*,*) 'MSAVE_SLICES_IN_RZ_PLANE: Saved R-Z slice at Theta =', &
+               TFM%THR(THETAPLANE)*180.0D0/PI, 'deg (real), ', &
+               TFM%THI(THETAPLANE)*180.0D0/PI, 'deg (imag).'
     ELSE
         WRITE(*,*) 'MSAVE_SLICES_IN_RZ_PLANE: Invalid THETAPLANE index:', THETAPLANE
         WRITE(*,*) 'Valid range is 1 to', NTH, 'or 999 for 3D.'

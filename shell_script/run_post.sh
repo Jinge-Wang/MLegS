@@ -2,9 +2,9 @@
 # SBATCH script to run postproc on the cluster
 
 #SBATCH -A phy220056          # Allocation name 
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=64
-#SBATCH --cpus-per-task=2
+#SBATCH --nodes=1             # Total # of nodes
+#SBATCH --ntasks-per-node=16  # Total # of MPI tasks per node
+#SBATCH --cpus-per-task=8
 #SBATCH --time=00:10:00
 #SBATCH -J post
 #SBATCH -o postproc.o%j

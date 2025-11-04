@@ -27,11 +27,11 @@ complex(p8), dimension(4,4):: ETD_E, ETD_NL
 call setup_environment('noecho')
 call setup_grid(files%savedir)
 
+! initialize with q-vortex as defined in read.input
+! plus a gaussian vortex perturbation
 call allocate(psi_tot)
 call allocate(chi_tot) 
 call allocate(b_per); b_per%e = 0.d0
-! initialize with q-vortex as defined in read.input
-! plus a gaussian vortex perturbation
 call initialize_gaussian_vortex_example(psi_tot, chi_tot, b_per)
 
 ! set up monitoring modes
@@ -52,15 +52,15 @@ CALL PT_SOLVER%INITIALIZE(psi_tot, chi_tot, b_per)
 call diagnost(psi_tot,chi_tot)
 CALL CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
 
-! !> startup
-! iii = tim%limit/tim%dt
-! files%n = 1
-! do it=1,5500
+!> startup
+iii = tim%limit/tim%dt
+files%n = 1
+do it=1,iii
 
-!    !> time-stepping
-!    CALL PT_SOLVER%TIME_STEPPING(psi_tot, chi_tot, b_per)
+   !> time-stepping
+   CALL PT_SOLVER%TIME_STEPPING(psi_tot, chi_tot, b_per)
    
-! enddo
+enddo
 
 !> final printout
 CALL PT_SOLVER%FINALIZE(psi_tot, chi_tot, b_per)
@@ -395,7 +395,7 @@ subroutine initialize_gaussian_vortex( &
   type(scalar), intent(in) :: rup_bg
   
   ! Output perturbation fields
-  type(scalar), intent(out) :: rur, rup, uz, b
+  type(scalar), intent(inout) :: rur, rup, uz, b
   
   ! Local variables
   real(p8) :: r0, th0, z0, omega0, H, f_eff, f, N, x0, y0
@@ -415,9 +415,7 @@ subroutine initialize_gaussian_vortex( &
   call tofp(rup_bg_phys)
   call get_omega_from_rup(r0, rup_bg_phys, omega0)
   call deallocate(rup_bg_phys)
-  call calc_vortex_params(Ro, L, omega0, f, N, Nc2, H)
-  
-  ! Diagnostics
+
   if (mpi_rank == 0) then
     write(*,'(A)') '=== Gaussian Vortex ==='
     write(*,'(A,3F8.3)') 'Center (r,θ,z): ', r0, th0, z0
@@ -427,6 +425,11 @@ subroutine initialize_gaussian_vortex( &
     write(*,'(A,F8.3)') 'Rossby number: ', Ro
     write(*,'(A,F8.3)') 'Input Nc^2:    ', Nc2
     write(*,'(A,2F8.3)') 'Scales (L,H): ', L, H
+  endif
+
+  call calc_vortex_params(Ro, L, omega0, f, N, Nc2, H)
+  
+  if (mpi_rank == 0) then
     write(*,'(A,F8.3)') 'Aspect H/L: ', H/L
   endif
   
@@ -436,8 +439,10 @@ subroutine initialize_gaussian_vortex( &
   y0 = r0 * sin(th0)
   
   ! Allocate and initialize fields
-  call allocate(rur, PPP_SPACE); call allocate(rup, PPP_SPACE); call allocate(uz, PPP_SPACE); call allocate(b, PPP_SPACE)
-  rur%e = 0.0_p8; uz%e = 0.0_p8
+  if (rur%space .ne. PPP_SPACE) then
+    call mprint('Error: Output fields must be in physical space (PPP_SPACE).')
+    call mpi_abort(MPI_COMM_IVP, ERR_FLAGS%SOLVER, ierr)
+  endif
   
   ! Loop over MPI-local physical space: e(nn,mm,kk) with offsets inr,inx (inth=0 in PPP)
   !$omp parallel do collapse(2) private(nn,mm,kk,rg,zg,thr_g,thi_g, &
@@ -447,6 +452,9 @@ subroutine initialize_gaussian_vortex( &
     do mm = 1, size(rup%e,2)
       do nn = 1, size(rup%e,1)
         
+        if (kk + rup%inx .gt. ndimx) cycle
+        if (nn + rup%inr .gt. ndimr) cycle
+
         ! Global grid coordinates (MPI pencil: full theta, distributed r and z)
         rg = tfm%r(nn + rup%inr)
         zg = tfm%z(kk + rup%inx)
@@ -486,10 +494,10 @@ subroutine initialize_gaussian_vortex( &
         b_i = 2.0_p8 * zh * (N**2 - Nc2) * gauss_exp
         
         ! Store in physical space convention
-        rur%e(nn,mm,kk) = cmplx(rur_r, rur_i, p8)
-        rup%e(nn,mm,kk) = cmplx(rup_r, rup_i, p8)
-        uz%e(nn,mm,kk) = cmplx(0.0_p8, 0.0_p8, p8)
-        b%e(nn,mm,kk) = cmplx(b_r, b_i, p8)
+        rur%e(nn,mm,kk) = rur%e(nn,mm,kk) + cmplx(rur_r, rur_i, p8)
+        rup%e(nn,mm,kk) = rup%e(nn,mm,kk) + cmplx(rup_r, rup_i, p8)
+        uz%e(nn,mm,kk) = uz%e(nn,mm,kk) + cmplx(0.0_p8, 0.0_p8, p8)
+        b%e(nn,mm,kk) = b%e(nn,mm,kk) + cmplx(b_r, b_i, p8)
         
       enddo
     enddo
@@ -497,7 +505,7 @@ subroutine initialize_gaussian_vortex( &
   !$omp end parallel do
   
   call chopdo(rur); call chopdo(rup); call chopdo(uz); call chopdo(b)
-  if (mpi_rank == 0) write(*,'(A)') 'Vortex initialization complete.'
+  if (mpi_rank == 0) write(*,'(A,3F8.3)') 'Vortex initialized at ', r0, th0, z0
   
 end subroutine initialize_gaussian_vortex
 
@@ -532,7 +540,7 @@ subroutine calc_vortex_params(Ro, L, omega0, f, N, Nc2, H)
   
   ! For a vortex derived from a Gaussian pressure anomaly, the radius
   ! of maximum velocity (Rv) is related to the pressure scale (L) by Rv = L/sqrt(2).
-  f_eff_over_f = f_eff / f
+  ! f_eff_over_f = f_eff / f
   L_over_Rv = sqrt(2.0_p8)
   
   ! Denominator must be non-zero for a baroclinic vortex
@@ -543,7 +551,8 @@ subroutine calc_vortex_params(Ro, L, omega0, f, N, Nc2, H)
   endif
 
   ! Aspect ratio from the corrected balance equation
-  alpha2 = (Ro * (f_eff_over_f + Ro * L_over_Rv) * f**2) / (Nc2 - N**2)
+  ! alpha2 = (Ro * (f_eff_over_f + Ro * L_over_Rv) * f**2) / (Nc2 - N**2)
+  alpha2 = (Ro * (1 + Ro * L_over_Rv) * f_eff**2) / (Nc2 - N**2)
   
   if (alpha2 <= 0.0_p8) then
     if (mpi_rank == 0) write(*,'(A,E12.4)') 'Warning: alpha^2 is negative or zero: ', alpha2
@@ -581,14 +590,16 @@ subroutine initialize_gaussian_vortex_example(psi_field, chi_field, b_field)
   implicit none
   type(scalar), intent(inout) :: psi_field, chi_field, b_field
   
-  real(p8), parameter :: center(3) = [2.5_p8, PI/4.0_p8, 5.0_p8]
+  real(p8) :: center(3)
   real(p8), parameter :: Ro = -0.3_p8  ! Rossby number
-  real(p8), parameter :: L = 0.2_p8  ! Horizontal length scale
+  real(p8), parameter :: L = 0.3_p8  ! Horizontal length scale
   real(p8), parameter :: Nc2 = 0.0_p8  ! Core stratification
   type(scalar) :: rur, rup, uz, b_pert, rup_bg, rur_bg, uz_bg, psi_bg, chi_bg, w
   
   if (mpi_rank == 0) write(*,'(A)') 'Setting up Gaussian vortex...'
   
+  center = [5.0_p8, PI/4.0_p8, zlen/2.0_p8]
+
   ! Step 1: Create background q-vortex using framework infrastructure
   call calc_qvortex(psi_bg, chi_bg)
   
@@ -599,212 +610,57 @@ subroutine initialize_gaussian_vortex_example(psi_field, chi_field, b_field)
   call pc2vel(psi_bg, chi_bg, rur_bg, rup_bg, uz_bg)
   
   ! Step 3: Transform velocity fields to physical space for omega extraction
-  call tofp(rur_bg)
   call tofp(rup_bg)
-  call tofp(uz_bg)
-  call chopset(-3)  ! Restore original truncation
+  call chopset(-3) ! Restore original truncation
+  call deallocate(rur_bg); call deallocate(uz_bg) ! Only rup_bg needed for omega extraction
   
   ! Step 4: Initialize Gaussian vortex perturbation in physical space
   ! This extracts omega0 from rup_bg at center, computes vortex parameters,
   ! and creates perturbation velocity and buoyancy fields
+  call allocate(rur, PPP_SPACE); rur%e = cmplx(0.0_p8, 0.0_p8, kind=p8)
+  call allocate(rup, PPP_SPACE); rup%e = cmplx(0.0_p8, 0.0_p8, kind=p8)
+  call allocate(uz, PPP_SPACE); uz%e = cmplx(0.0_p8, 0.0_p8, kind=p8)
+  call allocate(b_pert, PPP_SPACE); b_pert%e = cmplx(0.0_p8, 0.0_p8, kind=p8)
   call initialize_gaussian_vortex(center, Ro, L, Nc2, rup_bg, rur, rup, uz, b_pert)
+
+  ! ! Step 4.5: Add mirroring vortex
+  ! center = [5.0_p8, PI/4.0_p8 + PI, zlen/2.0_p8]
+  ! call initialize_gaussian_vortex(center, Ro, L, Nc2, rup_bg, rur, rup, uz, b_pert)
   
-  ! ! DEBUG: Save perturbation velocity fields for inspection
+  call deallocate(rup_bg)
+
+    ! ! DEBUG: Save perturbation velocity fields for inspection
   ! call save_perturbation_velocity(rur, rup, uz, b_pert)
-  
-  ! Step 5: Add perturbations to background velocity fields (both in physical space)
-  rur_bg%e = rur%e + rur_bg%e
-  rup_bg%e = rup%e + rup_bg%e
-  uz_bg%e = uz%e + uz_bg%e
-  call deallocate(rur); call deallocate(rup); call deallocate(uz)
 
-  ! Step 6: Project combined velocity back to (psi, chi) spectral representation
-  ! Deallocate old background fields and allocate fresh ones for projection output
+  ! Step 5a: Project velocity perturbations back to (psi, chi) spectral space
   call allocate(w)
-  call project(rur_bg, rup_bg, uz_bg, psi_bg, w, ln=psi_bg%ln)
-  call deallocate(rur_bg); call deallocate(rup_bg); call deallocate(uz_bg)
-  call idel2ln(w, chi_bg)
+  call project(rur, rup, uz, psi_field, w, ln=0.0_p8)
+  call deallocate(rur); call deallocate(rup); call deallocate(uz)
+  call idel2ln(w, chi_field)
   call deallocate(w)
-  psi_field = psi_bg
-  chi_field = chi_bg
-  call deallocate(psi_bg); call deallocate(chi_bg)
 
-  ! Step 7: Set buoyancy field (perturbation only, background buoyancy = 0)
+  ! Step 5b: Add perturbation density to background
   call tofp(b_field)
   b_field%e = b_pert%e + b_field%e  ! Add perturbation
   call deallocate(b_pert)
   call chopdo(b_field)  ! Apply spectral truncation
   call toff(b_field)  ! Transform back to spectral space
 
+  ! Step 5.5: Smooth perturbation fields
+  call hyp3init(.true.)
+  ! call hyperv3(psi_field, chi_field, b_field, DT_SCALE = 5.0_p8)
+  call hyperv3(psi_field, chi_field, b_field, DT_SCALE = 2.0_p8)
+  call hyp3free()
+
+  ! Step 6: Combine background (psi_bg, chi_bg) with perturbations
+  psi_field%e = psi_field%e + psi_bg%e; psi_field%ln = psi_field%ln + psi_bg%ln
+  chi_field%e = chi_field%e + chi_bg%e; chi_field%ln = chi_field%ln + chi_bg%ln
+  call deallocate(psi_bg); call deallocate(chi_bg)
+
   if (mpi_rank == 0) then
     write(*,'(A)') 'Gaussian vortex setup complete.'
   endif  
   
 end subroutine initialize_gaussian_vortex_example
-
-! ======================================================================
-!> @brief Save perturbation velocity fields for debugging
-!>
-!> @details Saves the Gaussian vortex perturbation velocity components
-!> (r*u_r, r*u_θ, u_z) and buoyancy to disk for visualization. Uses the
-!> same slice configuration and naming convention as postproc.f90.
-!>
-!> @param[in] rur    r*u_r perturbation field in physical space
-!> @param[in] rup    r*u_theta perturbation field in physical space
-!> @param[in] uz     u_z perturbation field in physical space
-!> @param[in] b      Buoyancy perturbation field in physical space
-!>
-!> @note Reads POSTPROCESS%JOB and POSTPROCESS%SLICEINT from read.input
-!> @note Files are named with '_ini' suffix to indicate initial condition
-!> @note Fields are saved as physical velocities (divided by r where needed)
-!>
-!> @author Jinge Wang
-!> @date Oct 2025
-subroutine save_perturbation_velocity(rur, rup, uz, b)
-  implicit none
-  type(scalar), intent(in) :: rur, rup, uz, b
-  
-  type(scalar) :: field
-  character(len=72) :: out_filename
-  character(len=15) :: slice_type_str
-  integer :: job_x, job_y, job_z
-  
-  if (mpi_rank == 0) write(*,'(A)') 'Saving perturbation velocity fields...'
-  
-  ! Parse POSTPROCESS%JOB
-  job_x = POSTPROCESS%JOB / 100
-  job_y = mod(POSTPROCESS%JOB, 100) / 10
-  job_z = mod(POSTPROCESS%JOB, 10)
-  
-  ! Only save velocity fields (job_x = 0 or 1)
-  if (job_x /= 0 .and. job_x /= 1) return
-  
-  ! Save each velocity component based on job_y
-  if (job_y == 0 .or. job_y == 1) then
-    call allocate(field, rur%space)
-    field = rur
-    call divr(field)
-    call save_field_slice(field, 'velR', job_z)
-    call deallocate(field)
-  endif
-  
-  if (job_y == 0 .or. job_y == 2) then
-    call allocate(field, rup%space)
-    field = rup
-    call divr(field)
-    call save_field_slice(field, 'velTh', job_z)
-    call deallocate(field)
-  endif
-  
-  if (job_y == 0 .or. job_y == 3) then
-    call allocate(field, uz%space)
-    field = uz
-    call save_field_slice(field, 'velZ', job_z)
-    call deallocate(field)
-  endif
-  
-  if (job_y == 0 .or. job_y == 4) then
-    call allocate(field, b%space)
-    field = b
-    call save_field_slice(field, 'buoyancy', job_z)
-    call deallocate(field)
-  endif
-  
-  if (mpi_rank == 0) write(*,'(A)') 'Perturbation velocity fields saved.'
-  
-end subroutine save_perturbation_velocity
-
-! ======================================================================
-!> @brief Helper routine to save a single field slice
-!>
-!> @param[in] field       Scalar field to save
-!> @param[in] field_name  Name prefix for the output file
-!> @param[in] job_z       Slice orientation (1=R-Theta, 2=R-Z)
-subroutine save_field_slice(field, field_name, job_z)
-  implicit none
-  type(scalar), intent(in) :: field
-  character(len=*), intent(in) :: field_name
-  integer, intent(in) :: job_z
-  
-  character(len=72) :: out_filename
-  character(len=15) :: slice_type_str
-  complex(p8), dimension(:,:,:), allocatable :: a_glb
-  
-  if (field%space /= PPP_SPACE) then
-    if (mpi_rank == 0) write(*,*) 'save_field_slice: Field not in PPP space'
-    return
-  endif
-  
-  ! Assemble global array
-  allocate(a_glb(NDIMR, NDIMTH, NDIMX))
-  call massemble(field%e, a_glb, 2)
-  
-  ! Determine filename and save based on slice orientation
-  select case(job_z)
-  case(1) ! R-Theta plane
-    if (POSTPROCESS%SLICEINT == 999) then
-      slice_type_str = '_3D_'
-    else
-      slice_type_str = '_RTplane_'
-    endif
-    out_filename = trim(field_name)//trim(slice_type_str)//'ini.dat'
-    
-    if (mpi_rank == 0) then
-      if (POSTPROCESS%SLICEINT == 999) then
-        call msave(a_glb(:NR, :NTH, :NX), trim(adjustl(files%savedir))//out_filename)
-      else if (POSTPROCESS%SLICEINT > 0 .and. POSTPROCESS%SLICEINT <= NX) then
-        call msave(a_glb(:NR, :NTH, POSTPROCESS%SLICEINT), trim(adjustl(files%savedir))//out_filename)
-      endif
-    endif
-    
-  case(2) ! R-Z plane
-    if (POSTPROCESS%SLICEINT == 999) then
-      slice_type_str = '_3D_'
-    else
-      slice_type_str = '_RZplane_'
-    endif
-    out_filename = trim(field_name)//trim(slice_type_str)//'ini.dat'
-    
-    if (mpi_rank == 0) then
-      if (POSTPROCESS%SLICEINT == 999) then
-        call msave(a_glb(:NR, :NTH, :NX), trim(adjustl(files%savedir))//out_filename)
-      else if (POSTPROCESS%SLICEINT > 0 .and. POSTPROCESS%SLICEINT <= NTH) then
-        call msave(a_glb(:NR, POSTPROCESS%SLICEINT, :NX), trim(adjustl(files%savedir))//out_filename)
-      endif
-    endif
-  end select
-  
-  deallocate(a_glb)
-  
-end subroutine save_field_slice
-
-! ======================================================================
-!> @brief Divide field by radius in physical space
-!>
-!> @param[inout] a  Scalar field in physical space to be divided by r
-subroutine divr(a)
-  implicit none
-  type(scalar), intent(inout) :: a
-  integer :: nn, mm, kk, inr
-  
-  if (a%space /= PPP_SPACE) then
-    if (mpi_rank == 0) write(*,*) 'divr: Field not in PPP space'
-    call mpi_abort(MPI_COMM_WORLD, 1, ierr)
-  endif
-  
-  inr = a%inr
-  
-  !$omp parallel do collapse(3)
-  do kk = 1, size(a%e, 3)
-    do mm = 1, size(a%e, 2)
-      do nn = 1, size(a%e, 1)
-        a%e(nn, mm, kk) = a%e(nn, mm, kk) / tfm%r(nn + inr)
-      enddo
-    enddo
-  enddo
-  !$omp end parallel do
-  
-end subroutine divr
-
 
 end program bsnsq_gauss
