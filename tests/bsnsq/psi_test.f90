@@ -90,7 +90,7 @@ call setup_grid(files%savedir)
 
 ! initialize fields
 ! a. gaussian vortex
-! call calc_qvortex(psi_tot, chi_tot)
+! call QVORTEX(psi_tot, chi_tot)
 ! call allocate(b_per); b_per%e = 0.d0
 ! b. psi with non-zero log
 call allocate(psi_tot); psi_tot%e = 0.d0; psi_tot%ln = 1.d0

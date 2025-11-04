@@ -39,7 +39,7 @@ call setup_grid(files%savedir)
 ! call allocate(b_per); call gaussian_blob(b_per, 1.0d-3, 0.5d0, PI / 4.d0, 0.5*zlen, 1.d0, 0.1*zlen)
 
 ! c. gaussian vortex
-call calc_qvortex(psi_tot, chi_tot)
+call QVORTEX(psi_tot, chi_tot)
 call allocate(b_per); b_per%e = 0.d0
 
 ! set up monitoring modes

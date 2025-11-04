@@ -28,7 +28,7 @@ call setup_grid(files%savedir)
 
 ! initialize fields
 ! call allocate(psi_tot); call allocate(chi_tot);
-call calc_qvortex(psi_tot, chi_tot)
+call QVORTEX(psi_tot, chi_tot)
 call allocate(b_per); b_per%e = 0.d0
 
 ! set up monitoring modes

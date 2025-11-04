@@ -36,7 +36,7 @@ VORTEXPAIR
        1
 # ---------------------------------------------------------------------
 #      X       Y       Q       H       B -(X, Y, Q, B AND H FOR VORTEX)
-       0.      0.     16.      0.      1.
+       0.      0.      1.      0.      1.
 # ---------------------------------------------------------------------
 VORTEXPAIR_NOISE
 #  NOISE -----------------(1: RANDOM NOISE CREATED INTO INITIAL VORTEX)
@@ -52,7 +52,7 @@ VORTEXPAIR_SECTION
 # ---------------------------------------------------------------------
 DT
 #     DT   LIMIT ------------------------------------(DELTAT & ENDTIME)
-     0.01  300.0
+      0.1  300.0
 # ---------------------------------------------------------------------
 TIME_INTEG
 # SCHEME -----------------(TIME ADVANCEMENT SCHEME !!CURRENTLY DUMMY!!)
@@ -68,7 +68,7 @@ NUP_ADJUST
 # ---------------------------------------------------------------------
 BOUSSINESQ
 #     BV0    OMEGA    KAPPA   KAPPAP    ABSW ------(USE A-B FOR LINEAR)
-      1.0    -0.18  0.0000002   1.0       0
+      0.1     0.0  0.0000002   1.0       0
 # ---------------------------------------------------------------------
 FREESTREAM
 #     SW      UX      UY      UZ     INT -(SWITCH, UX, UY, UZ, # STEPS)
@@ -115,26 +115,26 @@ OUTPUTS
 # ---------------------------------------------------------------------
 #      T         PSIX_F         CHIX_F         BX_F --(SNAPTIME, FILES)
 # (NE LINES. THE LAST SNAPSHOT TIME DETERMINES THE PROGRAM TERMINATION)
-         0.1        psi2.dat        chi2.dat        b2.dat
-         0.2        psi4.dat        chi4.dat        b4.dat
-         0.3        psi6.dat        chi6.dat        b6.dat
-         0.4        psi8.dat        chi8.dat        b8.dat
-         0.5       psi10.dat       chi10.dat       b10.dat
-         0.6       psi12.dat       chi12.dat       b12.dat
-         0.7       psi14.dat       chi14.dat       b14.dat
-         0.8       psi16.dat       chi16.dat       b16.dat
-         0.9       psi18.dat       chi18.dat       b18.dat
-         1.0       psi20.dat       chi20.dat       b20.dat
-         1.1       psi22.dat       chi22.dat       b22.dat
-         1.2       psi24.dat       chi24.dat       b24.dat
-         1.3       psi26.dat       chi26.dat       b26.dat
-         1.4       psi28.dat       chi28.dat       b28.dat
-         1.5       psi30.dat       chi30.dat       b30.dat
-         1.6       psi32.dat       chi32.dat       b32.dat
-         1.7       psi34.dat       chi34.dat       b34.dat
-         1.8       psi36.dat       chi36.dat       b36.dat
-         1.9       psi38.dat       chi38.dat       b38.dat
-         2.0       psi40.dat       chi40.dat       b40.dat
+         2.0        psi2.dat        chi2.dat        b2.dat
+         4.0        psi4.dat        chi4.dat        b4.dat
+         6.0        psi6.dat        chi6.dat        b6.dat
+         8.0        psi8.dat        chi8.dat        b8.dat
+        10.0       psi10.dat       chi10.dat       b10.dat
+        12.0       psi12.dat       chi12.dat       b12.dat
+        14.0       psi14.dat       chi14.dat       b14.dat
+        16.0       psi16.dat       chi16.dat       b16.dat
+        18.0       psi18.dat       chi18.dat       b18.dat
+        20.0       psi20.dat       chi20.dat       b20.dat
+        22.0       psi22.dat       chi22.dat       b22.dat
+        24.0       psi24.dat       chi24.dat       b24.dat
+        26.0       psi26.dat       chi26.dat       b26.dat
+        28.0       psi28.dat       chi28.dat       b28.dat
+        30.0       psi30.dat       chi30.dat       b30.dat
+        32.0       psi32.dat       chi32.dat       b32.dat
+        34.0       psi34.dat       chi34.dat       b34.dat
+        36.0       psi36.dat       chi36.dat       b36.dat
+        38.0       psi38.dat       chi38.dat       b38.dat
+        40.0       psi40.dat       chi40.dat       b40.dat
         42.0       psi42.dat       chi42.dat       b42.dat
         44.0       psi44.dat       chi44.dat       b44.dat
         46.0       psi46.dat       chi46.dat       b46.dat
