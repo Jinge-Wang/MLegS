@@ -1036,7 +1036,6 @@ CONTAINS
 
   INTEGER :: NN, MM, KK
   COMPLEX(P8), DIMENSION(4, 1) :: EV, AV, CV  
-  REAL(P8), DIMENSION(2, 2) :: E_H_K0, NL_H_K0 ! K = 0 OPERATORS
 
   ! --- Space Checks ---
   IF ((RUR%SPACE .NE. PFF_SPACE) .OR. (NB%SPACE .NE. PFF_SPACE) .OR. (RNR%SPACE .NE. PFF_SPACE)) THEN
@@ -1052,60 +1051,30 @@ CONTAINS
   ENDIF
   ! --- End Space Checks ---
 
-  ! Define the k_x=0 operators (Identity for E, Euler-step for A)
-  E_H_K0 = 0.D0; E_H_K0(1,1) = 1.D0; E_H_K0(2,2) = 1.D0
-  NL_H_K0 = 0.D0; NL_H_K0(1,1) = DT; NL_H_K0(2,2) = DT
-
   !$OMP PARALLEL DO PRIVATE(MM, NN, EV, AV, CV) SCHEDULE(STATIC)
   DO KK = 1, SIZE(B%E, 3)
-    
-    IF ((B%INX + KK) .EQ. 1) THEN ! K = 0 MODE
-      DO MM = 1, SIZE(B%E, 2)
-        DO NN = 1, SIZE(B%E, 1)
-          EV(1, 1) = RUR%E(NN, MM, KK)
-          EV(2, 1) = RUP%E(NN, MM, KK)
-          EV(3, 1) = UZ%E(NN, MM, KK)
-          EV(4, 1) = B%E(NN, MM, KK)
+    DO MM = 1, SIZE(B%E, 2)
+      DO NN = 1, SIZE(B%E, 1)
+        EV(1, 1) = RUR%E(NN, MM, KK)
+        EV(2, 1) = RUP%E(NN, MM, KK)
+        EV(3, 1) = UZ%E(NN, MM, KK)
+        EV(4, 1) = B%E(NN, MM, KK)
 
-          AV(1, 1) = RNR%E(NN, MM, KK)
-          AV(2, 1) = RNP%E(NN, MM, KK)
-          AV(3, 1) = NZ%E(NN, MM, KK)
-          AV(4, 1) = NB%E(NN, MM, KK)
+        AV(1, 1) = RNR%E(NN, MM, KK)
+        AV(2, 1) = RNP%E(NN, MM, KK)
+        AV(3, 1) = NZ%E(NN, MM, KK)
+        AV(4, 1) = NB%E(NN, MM, KK)
 
-          CV(1:2, 1) = MATMUL(E_H_K0, EV(1:2, 1)) + MATMUL(NL_H_K0, AV(1:2, 1))
-          CV(3:4, 1) = MATMUL(ETD_OP%E_V, EV(3:4, 1)) + MATMUL(ETD_OP%NL_V, AV(3:4, 1))
+        CV(1:2, 1) = MATMUL(ETD_OP%E_H(:,:,NN), EV(1:2, 1)) + &
+                  MATMUL(ETD_OP%NL_H(:,:,NN), AV(1:2, 1))
+        CV(3:4, 1) = MATMUL(ETD_OP%E_V, EV(3:4, 1)) + MATMUL(ETD_OP%NL_V, AV(3:4, 1))
 
-          RUR%E(NN, MM, KK) = CV(1, 1)
-          RUP%E(NN, MM, KK) = CV(2, 1)
-          UZ%E(NN, MM, KK)  = CV(3, 1)
-          B%E(NN, MM, KK)   = CV(4, 1)
-        ENDDO
+        RUR%E(NN, MM, KK) = CV(1, 1)
+        RUP%E(NN, MM, KK) = CV(2, 1)
+        UZ%E(NN, MM, KK)  = CV(3, 1)
+        B%E(NN, MM, KK)   = CV(4, 1)
       ENDDO
-    ELSE ! K != 0 MODES
-      DO MM = 1, SIZE(B%E, 2)
-        DO NN = 1, SIZE(B%E, 1)
-          EV(1, 1) = RUR%E(NN, MM, KK)
-          EV(2, 1) = RUP%E(NN, MM, KK)
-          EV(3, 1) = UZ%E(NN, MM, KK)
-          EV(4, 1) = B%E(NN, MM, KK)
-
-          AV(1, 1) = RNR%E(NN, MM, KK)
-          AV(2, 1) = RNP%E(NN, MM, KK)
-          AV(3, 1) = NZ%E(NN, MM, KK)
-          AV(4, 1) = NB%E(NN, MM, KK)
-
-          CV(1:2, 1) = MATMUL(ETD_OP%E_H(:,:,NN), EV(1:2, 1)) + &
-                    MATMUL(ETD_OP%NL_H(:,:,NN), AV(1:2, 1))
-          CV(3:4, 1) = MATMUL(ETD_OP%E_V, EV(3:4, 1)) + MATMUL(ETD_OP%NL_V, AV(3:4, 1))
-
-          RUR%E(NN, MM, KK) = CV(1, 1)
-          RUP%E(NN, MM, KK) = CV(2, 1)
-          UZ%E(NN, MM, KK)  = CV(3, 1)
-          B%E(NN, MM, KK)   = CV(4, 1)
-        ENDDO
-      ENDDO
-    ENDIF
-    
+    ENDDO    
   ENDDO
   !$OMP END PARALLEL DO
 
@@ -1166,71 +1135,36 @@ CONTAINS
   E_V_LOC = THIS%ETD_FULL%E_V
   NL_V_LOC = THIS%ETD_FULL%NL_V
 
-  ! Define the k_x=0 operators (Identity for E, Adams-Bashforth for A)
-  E_H_K0 = 0.D0; E_H_K0(1,1) = 1.D0; E_H_K0(2,2) = 1.D0
-  NL_H_K0 = 0.D0; NL_H_K0(1,1) = DT; NL_H_K0(2,2) = DT
-
   !$OMP PARALLEL DO PRIVATE(MM, NN, EV, ABV, CV, NOT_K0, NOT_M0) SCHEDULE(STATIC)
   DO KK = 1,SIZE(B%E,3)
+    NOT_K0 = 1.0D0
+    DO MM = 1,SIZE(B%E,2)
+      NOT_M0 = 1.0D0
+      IF (B%INTH+MM .EQ. 1) NOT_M0 = 0.0D0
+      DO NN = 1,SIZE(B%E,1)
+        ! E*( U^(N) - GRAD PI^(N) ) + A*N[U^(N)] - B*N[U^(N-1)]
+        EV(1,1) = RUR%E(NN,MM,KK) - THIS%R_PI_R%E(NN,MM,KK)
+        EV(2,1) = RUP%E(NN,MM,KK) - THIS%R_PI_P%E(NN,MM,KK)*NOT_M0
+        EV(3,1) = UZ%E(NN,MM,KK) - THIS%PI_Z%E(NN,MM,KK)*NOT_K0
+        EV(4,1) = B%E(NN,MM,KK)
 
-    IF ((B%INX + KK) .EQ. 1) THEN ! K = 0 MODE
-      NOT_K0 = 0.0D0
-      DO MM = 1,SIZE(B%E,2)
-        NOT_M0 = 1.0D0
-        IF (B%INTH+MM .EQ. 1) NOT_M0 = 0.0D0
-        DO NN = 1,SIZE(B%E,1)
-          ! E*( U^(N) - GRAD PI^(N) ) + A*N[U^(N)] - B*N[U^(N-1)]
-          EV(1,1) = RUR%E(NN,MM,KK) - THIS%R_PI_R%E(NN,MM,KK)
-          EV(2,1) = RUP%E(NN,MM,KK) - THIS%R_PI_P%E(NN,MM,KK)*NOT_M0
-          EV(3,1) = UZ%E(NN,MM,KK) - THIS%PI_Z%E(NN,MM,KK)*NOT_K0
-          EV(4,1) = B%E(NN,MM,KK)
+        ABV(1,1) = 1.5D0*RNR%E(NN,MM,KK) - 0.5D0*THIS%R_N_R%E(NN,MM,KK)
+        ABV(2,1) = 1.5D0*RNP%E(NN,MM,KK) - 0.5D0*THIS%R_N_P%E(NN,MM,KK)
+        ABV(3,1) = 1.5D0*NZ%E(NN,MM,KK) - 0.5D0*THIS%N_Z%E(NN,MM,KK)
+        ABV(4,1) = 1.5D0*NB%E(NN,MM,KK) - 0.5D0*THIS%N_B%E(NN,MM,KK)
 
-          ABV(1,1) = 1.5D0*RNR%E(NN,MM,KK) - 0.5D0*THIS%R_N_R%E(NN,MM,KK)
-          ABV(2,1) = 1.5D0*RNP%E(NN,MM,KK) - 0.5D0*THIS%R_N_P%E(NN,MM,KK)
-          ABV(3,1) = 1.5D0*NZ%E(NN,MM,KK) - 0.5D0*THIS%N_Z%E(NN,MM,KK)
-          ABV(4,1) = 1.5D0*NB%E(NN,MM,KK) - 0.5D0*THIS%N_B%E(NN,MM,KK)
+        ! CV = MATMUL(ETD_E_R, EV) + MATMUL(ETD_NL_R, ABV)
+        CV(1:2,1) = MATMUL(THIS%ETD_FULL%E_H(:,:,NN), EV(1:2,1)) + &
+                      MATMUL(THIS%ETD_FULL%NL_H(:,:,NN), ABV(1:2,1))
+        CV(3:4,1) = MATMUL(E_V_LOC, EV(3:4,1)) + MATMUL(NL_V_LOC, ABV(3:4,1))
 
-          ! CV = MATMUL(ETD_E_R, EV) + MATMUL(ETD_NL_R, ABV)
-          CV(1:2,1) = MATMUL(E_H_K0, EV(1:2,1)) + MATMUL(NL_H_K0, ABV(1:2,1))
-          CV(3:4,1) = MATMUL(E_V_LOC, EV(3:4,1)) + MATMUL(NL_V_LOC, ABV(3:4,1))
+        RUR%E(NN,MM,KK) = CV(1,1)
+        RUP%E(NN,MM,KK) = CV(2,1)
+        UZ%E(NN,MM,KK) = CV(3,1)
+        B%E(NN,MM,KK) = CV(4,1)
 
-          RUR%E(NN,MM,KK) = CV(1,1)
-          RUP%E(NN,MM,KK) = CV(2,1)
-          UZ%E(NN,MM,KK) = CV(3,1)
-          B%E(NN,MM,KK) = CV(4,1)
-
-        ENDDO
       ENDDO
-    ELSE ! K != 0 MODES
-      NOT_K0 = 1.0D0
-      DO MM = 1,SIZE(B%E,2)
-        NOT_M0 = 1.0D0
-        IF (B%INTH+MM .EQ. 1) NOT_M0 = 0.0D0
-        DO NN = 1,SIZE(B%E,1)
-          ! E*( U^(N) - GRAD PI^(N) ) + A*N[U^(N)] - B*N[U^(N-1)]
-          EV(1,1) = RUR%E(NN,MM,KK) - THIS%R_PI_R%E(NN,MM,KK)
-          EV(2,1) = RUP%E(NN,MM,KK) - THIS%R_PI_P%E(NN,MM,KK)*NOT_M0
-          EV(3,1) = UZ%E(NN,MM,KK) - THIS%PI_Z%E(NN,MM,KK)*NOT_K0
-          EV(4,1) = B%E(NN,MM,KK)
-
-          ABV(1,1) = 1.5D0*RNR%E(NN,MM,KK) - 0.5D0*THIS%R_N_R%E(NN,MM,KK)
-          ABV(2,1) = 1.5D0*RNP%E(NN,MM,KK) - 0.5D0*THIS%R_N_P%E(NN,MM,KK)
-          ABV(3,1) = 1.5D0*NZ%E(NN,MM,KK) - 0.5D0*THIS%N_Z%E(NN,MM,KK)
-          ABV(4,1) = 1.5D0*NB%E(NN,MM,KK) - 0.5D0*THIS%N_B%E(NN,MM,KK)
-
-          ! CV = MATMUL(ETD_E_R, EV) + MATMUL(ETD_NL_R, ABV)
-          CV(1:2,1) = MATMUL(THIS%ETD_FULL%E_H(:,:,NN), EV(1:2,1)) + &
-                       MATMUL(THIS%ETD_FULL%NL_H(:,:,NN), ABV(1:2,1))
-          CV(3:4,1) = MATMUL(E_V_LOC, EV(3:4,1)) + MATMUL(NL_V_LOC, ABV(3:4,1))
-
-          RUR%E(NN,MM,KK) = CV(1,1)
-          RUP%E(NN,MM,KK) = CV(2,1)
-          UZ%E(NN,MM,KK) = CV(3,1)
-          B%E(NN,MM,KK) = CV(4,1)
-
-        ENDDO
-      ENDDO
-    ENDIF
+    ENDDO
   ENDDO
   !$OMP END PARALLEL DO
 
