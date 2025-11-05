@@ -5,7 +5,7 @@
 #SBATCH --nodes=1             # Total # of nodes
 #SBATCH --ntasks-per-node=64  # Total # of MPI tasks per node
 #SBATCH --cpus-per-task=2
-#SBATCH --time=00:20:00
+#SBATCH --time=00:30:00
 #SBATCH -J bsnsq_test
 #SBATCH -o bsnsq_test.o%j
 #SBATCH -e bsnsq_test.e%j

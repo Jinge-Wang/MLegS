@@ -302,11 +302,11 @@ NJ = SIZE(A,2)
 DO J=1,(NJ+7)/8
   JB=8*J-7
   JE=MIN(8*J,NJ)
-  WRITE(*,*) ' '
   WRITE(*,61) (JJ-1,JJ=JB,JE)
   DO I=1,NI
     WRITE(*,60) I-1, (A(I,JJ),JJ=JB,JE)
   ENDDO
+  WRITE(*,*) ' '
 ENDDO
 
 61   FORMAT(4X,8I10)
@@ -335,11 +335,11 @@ NJ = SIZE(A,2)
 DO J=1,(NJ+7)/8
   JB=8*J-7
   JE=MIN(8*J,NJ)
-  WRITE(*,*) ' '
   WRITE(*,61) (JJ,JJ=JB,JE)
   DO I=1,NI
     WRITE(*,60) I, (A(I,JJ),JJ=JB,JE)
   ENDDO
+  WRITE(*,*) ' '
 ENDDO
 
 61   FORMAT(4X,8I10)
@@ -368,11 +368,11 @@ NJ = SIZE(A,2)
 DO J=1,(NJ+3)/4
   JB=4*J-3
   JE=MIN(4*J,NJ)
-  WRITE(*,*) ' '
   WRITE(*,61) (JJ,JJ=JB,JE)
   DO I=1,NI
     WRITE(*,60) I,(A(I,JJ),JJ=JB,JE)
   ENDDO
+  WRITE(*,*) ' '
 ENDDO
 
 61   FORMAT(4X,8I23)

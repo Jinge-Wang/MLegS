@@ -21,18 +21,17 @@ program bsnsq_gauss
 implicit none
 ! -------------------------
 integer:: iii,it
-type(scalar):: psi_tot,chi_tot,b_per
-complex(p8), dimension(4,4):: ETD_E, ETD_NL
+type(scalar):: psi_per,chi_per,b_per
 
 call setup_environment('noecho')
 call setup_grid(files%savedir)
 
-! initialize with q-vortex as defined in read.input
-! plus a gaussian vortex perturbation
-call allocate(psi_tot)
-call allocate(chi_tot) 
+! set background flow as q-vortex defined in read.input
+! set initial condition as a gaussian vortex perturbation
+call allocate(psi_per)
+call allocate(chi_per) 
 call allocate(b_per)
-call initialize_gaussian_vortex_example(psi_tot, chi_tot, b_per)
+call initialize_gaussian_vortex_example(psi_per, chi_per, b_per)
 
 ! set up monitoring modes
 do iii = 1,size(MONITORDATA%MK,1)
@@ -41,16 +40,16 @@ do iii = 1,size(MONITORDATA%MK,1)
 enddo
 
 !> first diagnostic
-call diagnost(psi_tot,chi_tot)
-call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
-call inspect(psi_tot,1)
-call inspect(chi_tot,1)
+call diagnost(psi_per,chi_per)
+call CALC_BOUSSI_ENERGY(psi_per,chi_per,b_per,tim%t,files%savedir)
+call inspect(psi_per,1)
+call inspect(chi_per,1)
 call inspect(b_per,1)
 
 !> initialize solver
-CALL PT_SOLVER%INITIALIZE(psi_tot, chi_tot, b_per)
-call diagnost(psi_tot,chi_tot)
-CALL CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
+CALL PT_SOLVER%INITIALIZE(psi_per, chi_per, b_per)
+call diagnost(psi_per,chi_per)
+CALL CALC_BOUSSI_ENERGY(psi_per,chi_per,b_per,TIM%T,FILES%SAVEDIR)
 
 !> startup
 iii = tim%limit/tim%dt
@@ -58,12 +57,12 @@ files%n = 1
 do it=1,iii
 
    !> time-stepping
-   CALL PT_SOLVER%TIME_STEPPING(psi_tot, chi_tot, b_per)
+   CALL PT_SOLVER%TIME_STEPPING(psi_per, chi_per, b_per)
    
 enddo
 
 !> final printout
-CALL PT_SOLVER%FINALIZE(psi_tot, chi_tot, b_per)
+CALL PT_SOLVER%FINALIZE(psi_per, chi_per, b_per)
 
 ! ======================================================================
 contains
