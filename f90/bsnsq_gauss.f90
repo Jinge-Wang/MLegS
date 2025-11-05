@@ -1,6 +1,6 @@
 program bsnsq_gauss
 ! ======================================================================
-! NONLINEAR SIMULATION W/ FROZEN BACKGROUND Q-VORTEX + GAUSSIAN VORTEX
+! OPEN RE-FINED EIGENVECTORS AND RUN NONLINEAR SIMULATION 
 ! ======================================================================
    USE OMP_LIB
    USE MPI
@@ -21,17 +21,18 @@ program bsnsq_gauss
 implicit none
 ! -------------------------
 integer:: iii,it
-type(scalar):: psi_per,chi_per,b_per
+type(scalar):: psi_tot,chi_tot,b_per
+complex(p8), dimension(4,4):: ETD_E, ETD_NL
 
 call setup_environment('noecho')
 call setup_grid(files%savedir)
 
-! set background flow as q-vortex defined in read.input
-! set initial condition as a gaussian vortex perturbation
-call allocate(psi_per)
-call allocate(chi_per) 
-call allocate(b_per)
-call initialize_gaussian_vortex_example(psi_per, chi_per, b_per)
+! initialize with q-vortex as defined in read.input
+! plus a gaussian vortex perturbation
+call allocate(psi_tot)
+call allocate(chi_tot) 
+call allocate(b_per); b_per%e = 0.d0
+call initialize_gaussian_vortex_example(psi_tot, chi_tot, b_per)
 
 ! set up monitoring modes
 do iii = 1,size(MONITORDATA%MK,1)
@@ -40,16 +41,16 @@ do iii = 1,size(MONITORDATA%MK,1)
 enddo
 
 !> first diagnostic
-call diagnost(psi_per,chi_per)
-call CALC_BOUSSI_ENERGY(psi_per,chi_per,b_per,tim%t,files%savedir)
-call inspect(psi_per,1)
-call inspect(chi_per,1)
+call diagnost(psi_tot,chi_tot)
+call CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,tim%t,files%savedir)
+call inspect(psi_tot,1)
+call inspect(chi_tot,1)
 call inspect(b_per,1)
 
 !> initialize solver
-CALL PT_SOLVER%INITIALIZE(psi_per, chi_per, b_per)
-call diagnost(psi_per,chi_per)
-CALL CALC_BOUSSI_ENERGY(psi_per,chi_per,b_per,TIM%T,FILES%SAVEDIR)
+CALL PT_SOLVER%INITIALIZE(psi_tot, chi_tot, b_per)
+call diagnost(psi_tot,chi_tot)
+CALL CALC_BOUSSI_ENERGY(psi_tot,chi_tot,b_per,TIM%T,FILES%SAVEDIR)
 
 !> startup
 iii = tim%limit/tim%dt
@@ -57,12 +58,12 @@ files%n = 1
 do it=1,iii
 
    !> time-stepping
-   CALL PT_SOLVER%TIME_STEPPING(psi_per, chi_per, b_per)
+   CALL PT_SOLVER%TIME_STEPPING(psi_tot, chi_tot, b_per)
    
 enddo
 
 !> final printout
-CALL PT_SOLVER%FINALIZE(psi_per, chi_per, b_per)
+CALL PT_SOLVER%FINALIZE(psi_tot, chi_tot, b_per)
 
 ! ======================================================================
 contains
@@ -382,7 +383,7 @@ end subroutine get_omega_from_rup
 !> @author Jinge Wang
 !> @date Oct 2025
 subroutine initialize_gaussian_vortex( &
-    center, Ro, L, Nc2, &
+    center, Ro, L, Nc2, rup_bg, &
     rur, rup, uz, b)
 
   implicit none
@@ -391,6 +392,7 @@ subroutine initialize_gaussian_vortex( &
   real(p8), intent(in) :: center(3)  ! (r0, theta0, z0)
   real(p8), intent(in) :: Ro, L
   real(p8), intent(in) :: Nc2
+  type(scalar), intent(in) :: rup_bg
   
   ! Output perturbation fields
   type(scalar), intent(inout) :: rur, rup, uz, b
@@ -401,22 +403,18 @@ subroutine initialize_gaussian_vortex( &
   real(p8) :: v_r_glob, v_th_glob, cos_phi, sin_phi
   real(p8) :: rur_r, rup_r, b_r, rur_i, rup_i, b_i
   integer :: nn, mm, kk
+  type(scalar) :: rup_bg_phys
   
   ! Extract center and get background state
   r0 = center(1); th0 = center(2); z0 = center(3)
   f = 2.0_p8 * BSNSQ%OMEGA
   N = BSNSQ%BV0
   
-  ! old: extract omega0 from rup(scalar) using theta-z averaging
-  ! call get_omega_from_rup(r0, rup_bg_phys, omega0)
-
-  ! Directly use BSNSQ%RUP0 to extract omega0
-  nn = minloc(abs(tfm%r - r0), 1)
-  if (abs(tfm%r(nn) - r0) .le. 1.0e-12_p8) then
-    call mprint('Error: Vortex center r0 is too close to zero.')
-    call mpi_abort(MPI_COMM_WORLD, 1, ierr)
-  endif
-  omega0 = real(BSNSQ%RUP0(nn)/(tfm%r(nn)**2), p8) ! m = 0, k = 0 component must be real
+  call allocate(rup_bg_phys)
+  rup_bg_phys = rup_bg
+  call tofp(rup_bg_phys)
+  call get_omega_from_rup(r0, rup_bg_phys, omega0)
+  call deallocate(rup_bg_phys)
 
   if (mpi_rank == 0) then
     write(*,'(A)') '=== Gaussian Vortex ==='
@@ -572,17 +570,19 @@ end subroutine calc_vortex_params
 !> 
 !> @details Creates a quasi-equilibrium Gaussian vortex superposed on a
 !> background q-vortex flow. The workflow is:
-!> 1. Generate background q-vortex (psi_bg, chi_bg) using QVORTEX
-!> 2. Extract local omega at vortex center
-!> 3. Initialize Gaussian vortex perturbation in physical space
-!> 4. Add perturbation to background velocity fields
-!> 5. Project combined velocity back to (psi, chi) spectral representation
+!> 1. Generate background q-vortex (psi_bg, chi_bg) using calc_qvortex
+!> 2. Extract velocity field (rur, rup, uz) via pc2vel transform
+!> 3. Transform to physical space to extract local omega at vortex center
+!> 4. Initialize Gaussian vortex perturbation in physical space
+!> 5. Add perturbation to background velocity fields
+!> 6. Project combined velocity back to (psi, chi) spectral representation
+!> 
 !> @param[out] psi_field  Toroidal streamfunction (background + perturbation)
 !> @param[out] chi_field  Poloidal streamfunction (background + perturbation)  
 !> @param[out] b_field    Buoyancy field (perturbation only)
 !>
 !> @note Vortex center is set off-axis to trigger Zombie Vortex Instability
-!> @note Background field from QVORTEX must be compatible with domain
+!> @note Background field from calc_qvortex must be compatible with domain
 !>
 !> @author Jinge Wang
 !> @date Oct 2025
@@ -594,49 +594,68 @@ subroutine initialize_gaussian_vortex_example(psi_field, chi_field, b_field)
   real(p8), parameter :: Ro = -0.3_p8  ! Rossby number
   real(p8), parameter :: L = 0.3_p8  ! Horizontal length scale
   real(p8), parameter :: Nc2 = 0.0_p8  ! Core stratification
-  type(scalar) :: rur, rup, uz, b_pert, w
+  type(scalar) :: rur, rup, uz, b_pert, rup_bg, rur_bg, uz_bg, psi_bg, chi_bg, w
   
   if (mpi_rank == 0) write(*,'(A)') 'Setting up Gaussian vortex...'
   
   center = [5.0_p8, PI/4.0_p8, zlen/2.0_p8]
 
-  ! Step 1: Initialize background q-vortex
-  ! NOTE: we only use the m=0, k=0 component for background flow
-  call calc_boussi_baseflow(files%savedir)
+  ! Step 1: Create background q-vortex using framework infrastructure
+  call calc_qvortex(psi_bg, chi_bg)
   
-  ! Step 2: Initialize Gaussian vortex perturbation in physical space
-  ! This extracts angular velocity of background flow at center, computes 
-  ! vortex parameters, and creates perturbation velocity and buoyancy fields
+  ! Step 2: Extract velocity components from background (psi, chi) in spectral space
+  ! Use chopset(3) to increase radial resolution for derivative operations
+  call allocate(rur_bg); call allocate(rup_bg); call allocate(uz_bg)
+  call chopset(3)
+  call pc2vel(psi_bg, chi_bg, rur_bg, rup_bg, uz_bg)
+  
+  ! Step 3: Transform velocity fields to physical space for omega extraction
+  call tofp(rup_bg)
+  call chopset(-3) ! Restore original truncation
+  call deallocate(rur_bg); call deallocate(uz_bg) ! Only rup_bg needed for omega extraction
+  
+  ! Step 4: Initialize Gaussian vortex perturbation in physical space
+  ! This extracts omega0 from rup_bg at center, computes vortex parameters,
+  ! and creates perturbation velocity and buoyancy fields
   call allocate(rur, PPP_SPACE); rur%e = cmplx(0.0_p8, 0.0_p8, kind=p8)
   call allocate(rup, PPP_SPACE); rup%e = cmplx(0.0_p8, 0.0_p8, kind=p8)
   call allocate(uz, PPP_SPACE); uz%e = cmplx(0.0_p8, 0.0_p8, kind=p8)
   call allocate(b_pert, PPP_SPACE); b_pert%e = cmplx(0.0_p8, 0.0_p8, kind=p8)
-  call initialize_gaussian_vortex(center, Ro, L, Nc2, rur, rup, uz, b_pert)
+  call initialize_gaussian_vortex(center, Ro, L, Nc2, rup_bg, rur, rup, uz, b_pert)
 
-  ! ! Step 2.5: Add mirroring vortex
+  ! ! Step 4.5: Add mirroring vortex
   ! center = [5.0_p8, PI/4.0_p8 + PI, zlen/2.0_p8]
-  ! call initialize_gaussian_vortex(center, Ro, L, Nc2, rur, rup, uz, b_pert)
+  ! call initialize_gaussian_vortex(center, Ro, L, Nc2, rup_bg, rur, rup, uz, b_pert)
   
-  ! ! DEBUG: Save perturbation velocity fields for inspection
+  call deallocate(rup_bg)
+
+    ! ! DEBUG: Save perturbation velocity fields for inspection
   ! call save_perturbation_velocity(rur, rup, uz, b_pert)
 
-  ! Step 3: Project velocity perturbations back to (psi, chi) spectral space
+  ! Step 5a: Project velocity perturbations back to (psi, chi) spectral space
   call allocate(w)
   call project(rur, rup, uz, psi_field, w, ln=0.0_p8)
   call deallocate(rur); call deallocate(rup); call deallocate(uz)
   call idel2ln(w, chi_field)
   call deallocate(w)
 
-  ! Step 4: Assign perturbation density
-  call toff(b_pert)
-  call chopdo(b_pert)
-  b_field = b_pert
+  ! Step 5b: Add perturbation density to background
+  call tofp(b_field)
+  b_field%e = b_pert%e + b_field%e  ! Add perturbation
   call deallocate(b_pert)
+  call chopdo(b_field)  ! Apply spectral truncation
+  call toff(b_field)  ! Transform back to spectral space
 
-  ! Step 5: Smooth perturbation fields
+  ! Step 5.5: Smooth perturbation fields
   call hyp3init(.true.)
-  call hyperv3(psi_field, chi_field, b_field, DT_SCALE = 2.0_p8) ! two exponential filters at highest
+  ! call hyperv3(psi_field, chi_field, b_field, DT_SCALE = 5.0_p8)
+  call hyperv3(psi_field, chi_field, b_field, DT_SCALE = 2.0_p8)
   call hyp3free()
+
+  ! Step 6: Combine background (psi_bg, chi_bg) with perturbations
+  psi_field%e = psi_field%e + psi_bg%e; psi_field%ln = psi_field%ln + psi_bg%ln
+  chi_field%e = chi_field%e + chi_bg%e; chi_field%ln = chi_field%ln + chi_bg%ln
+  call deallocate(psi_bg); call deallocate(chi_bg)
 
   if (mpi_rank == 0) then
     write(*,'(A)') 'Gaussian vortex setup complete.'
