@@ -416,7 +416,7 @@ subroutine initialize_gaussian_vortex( &
     call mprint('Error: Vortex center r0 is too close to zero.')
     call mpi_abort(MPI_COMM_WORLD, 1, ierr)
   endif
-  omega0 = real(BSNSQ%RUP0(nn)/(tfm%r(nn)**2), p8) ! m = 0, k = 0 component must be real
+  omega0 = BSNSQ%RUP0(nn)/(tfm%r(nn)**2)
 
   if (mpi_rank == 0) then
     write(*,'(A)') '=== Gaussian Vortex ==='
