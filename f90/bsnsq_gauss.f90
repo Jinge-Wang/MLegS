@@ -591,14 +591,14 @@ subroutine initialize_gaussian_vortex_example(psi_field, chi_field, b_field)
   type(scalar), intent(inout) :: psi_field, chi_field, b_field
   
   real(p8) :: center(3)
-  real(p8), parameter :: Ro = -0.3_p8  ! Rossby number
-  real(p8), parameter :: L = 0.3_p8  ! Horizontal length scale
+  real(p8), parameter :: Ro = -0.5_p8  ! Rossby number
+  real(p8), parameter :: L = 1.0_p8  ! Horizontal length scale
   real(p8), parameter :: Nc2 = 0.0_p8  ! Core stratification
   type(scalar) :: rur, rup, uz, b_pert, w
   
   if (mpi_rank == 0) write(*,'(A)') 'Setting up Gaussian vortex...'
   
-  center = [5.0_p8, PI/4.0_p8, zlen/2.0_p8]
+  center = [12.0_p8, PI/4.0_p8, zlen/2.0_p8]
 
   ! Step 1: Initialize background q-vortex
   ! NOTE: we only use the m=0, k=0 component for background flow

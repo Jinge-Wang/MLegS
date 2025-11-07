@@ -1,22 +1,22 @@
 DIMENSION 
 #     NR     NTH      NX ----------------------------------(POWER OF 2)
-     408     204     576
+     408     204     408
 # ---------------------------------------------------------------------
 CHOPS
 # NRCHOP  NTCHOP  NXCHOP --(NXCHOP<=NX/2 UNLESS NXCHOP=NX=1,NRCHOP<=NR)
-     272     136     192
+     272     136     136
 # ---------------------------------------------------------------------
 ELL
 #    ELL -----------------------------------------------(MAP PARAMETER)
-      8.
+     16.
 # ---------------------------------------------------------------------
 ZLEN
 #   ZLEN ------------------------(PERIOD LENGTH IN THE AXIAL DIRECTION)
 # 125.663706143591729538505735331180
 #  62.83185307179586476925286766559
-#  31.415926535897932384626433832795
+   31.415926535897932384626433832795
 #  25.132741228718345907701147066236
-   18.849555921538759430775860300067
+#  18.849555921538759430775860300067
 #  15.707963267948966192313216916397
 #  12.566370614359172953850573533118
 #  10.471975511965977461542144610931
@@ -36,7 +36,7 @@ VORTEXPAIR
        1
 # ---------------------------------------------------------------------
 #      X       Y       Q       H       B -(X, Y, Q, B AND H FOR VORTEX)
-       0.      0.      1.      0.      1.
+       0.      0.      4.      0.      1.
 # ---------------------------------------------------------------------
 VORTEXPAIR_NOISE
 #  NOISE -----------------(1: RANDOM NOISE CREATED INTO INITIAL VORTEX)
@@ -48,11 +48,11 @@ VORTEXPAIR_CROW
 # ---------------------------------------------------------------------
 VORTEXPAIR_SECTION
 #      R      DR      RP      RK ---(CORER, DELTAR, DELTAPHASE & WAVE#)
-      4.      0.      0.       1
+      8.      0.      0.       1
 # ---------------------------------------------------------------------
 DT
 #     DT   LIMIT ------------------------------------(DELTAT & ENDTIME)
-      0.1  300.0
+     0.1  100000.0
 # ---------------------------------------------------------------------
 TIME_INTEG
 # SCHEME -----------------(TIME ADVANCEMENT SCHEME !!CURRENTLY DUMMY!!)
@@ -60,15 +60,15 @@ TIME_INTEG
 # ---------------------------------------------------------------------
 VISCOSITY
 #     SW      NU     NUP       P --(SWITCH, VISCOSITY, HYPERV, HELMPOW)
-       3  0.0000002  1.0       8
+       3  0.0000002  1.0       6
 # ---------------------------------------------------------------------
 NUP_ADJUST
 #  ADJSW  ADJINT -(HYPERV ADJUSTMENT SWITCH & FOR EVERY 'ADJINT' STEPS)
-       1     100
+     1      500
 # ---------------------------------------------------------------------
 BOUSSINESQ
 #     BV0    OMEGA    KAPPA   KAPPAP    ABSW ------(USE A-B FOR LINEAR)
-      0.1     0.0  0.0000002   1.0       0
+      0.07     0.0  0.0000002   1.0       0
 # ---------------------------------------------------------------------
 FREESTREAM
 #     SW      UX      UY      UZ     INT -(SWITCH, UX, UY, UZ, # STEPS)
@@ -80,7 +80,7 @@ STRAIN
 # ---------------------------------------------------------------------
 REMOVE
 #     SW     INT -------(VORTEX REMOVAL SWITCH & FOR EVERY 'INT' STEPS)
-       2    1000
+       2    2000
 # ---------------------------------------------------------------------
 SAVEDIR
 #      DIRECTORY -------------(DIRECTOR WHERE ALL DAT FILES ARE STORED)
@@ -111,165 +111,35 @@ BI
 # ---------------------------------------------------------------------
 OUTPUTS
 #     NE --------------------------(NUMBER OF SNAPSHOTS OF PSI AND CHI)
-       150
+      20
 # ---------------------------------------------------------------------
 #      T         PSIX_F         CHIX_F         BX_F --(SNAPTIME, FILES)
 # (NE LINES. THE LAST SNAPSHOT TIME DETERMINES THE PROGRAM TERMINATION)
-         2.0        psi2.dat        chi2.dat        b2.dat
-         4.0        psi4.dat        chi4.dat        b4.dat
-         6.0        psi6.dat        chi6.dat        b6.dat
-         8.0        psi8.dat        chi8.dat        b8.dat
-        10.0       psi10.dat       chi10.dat       b10.dat
-        12.0       psi12.dat       chi12.dat       b12.dat
-        14.0       psi14.dat       chi14.dat       b14.dat
-        16.0       psi16.dat       chi16.dat       b16.dat
-        18.0       psi18.dat       chi18.dat       b18.dat
-        20.0       psi20.dat       chi20.dat       b20.dat
-        22.0       psi22.dat       chi22.dat       b22.dat
-        24.0       psi24.dat       chi24.dat       b24.dat
-        26.0       psi26.dat       chi26.dat       b26.dat
-        28.0       psi28.dat       chi28.dat       b28.dat
-        30.0       psi30.dat       chi30.dat       b30.dat
-        32.0       psi32.dat       chi32.dat       b32.dat
-        34.0       psi34.dat       chi34.dat       b34.dat
-        36.0       psi36.dat       chi36.dat       b36.dat
-        38.0       psi38.dat       chi38.dat       b38.dat
-        40.0       psi40.dat       chi40.dat       b40.dat
-        42.0       psi42.dat       chi42.dat       b42.dat
-        44.0       psi44.dat       chi44.dat       b44.dat
-        46.0       psi46.dat       chi46.dat       b46.dat
-        48.0       psi48.dat       chi48.dat       b48.dat
-        50.0       psi50.dat       chi50.dat       b50.dat
-        52.0       psi52.dat       chi52.dat       b52.dat
-        54.0       psi54.dat       chi54.dat       b54.dat
-        56.0       psi56.dat       chi56.dat       b56.dat
-        58.0       psi58.dat       chi58.dat       b58.dat
-        60.0       psi60.dat       chi60.dat       b60.dat
-        62.0       psi62.dat       chi62.dat       b62.dat
-        64.0       psi64.dat       chi64.dat       b64.dat
-        66.0       psi66.dat       chi66.dat       b66.dat
-        68.0       psi68.dat       chi68.dat       b68.dat
-        70.0       psi70.dat       chi70.dat       b70.dat
-        72.0       psi72.dat       chi72.dat       b72.dat
-        74.0       psi74.dat       chi74.dat       b74.dat
-        76.0       psi76.dat       chi76.dat       b76.dat
-        78.0       psi78.dat       chi78.dat       b78.dat
-        80.0       psi80.dat       chi80.dat       b80.dat
-        82.0       psi82.dat       chi82.dat       b82.dat
-        84.0       psi84.dat       chi84.dat       b84.dat
-        86.0       psi86.dat       chi86.dat       b86.dat
-        88.0       psi88.dat       chi88.dat       b88.dat
-        90.0       psi90.dat       chi90.dat       b90.dat
-        92.0       psi92.dat       chi92.dat       b92.dat
-        94.0       psi94.dat       chi94.dat       b94.dat
-        96.0       psi96.dat       chi96.dat       b96.dat
-        98.0       psi98.dat       chi98.dat       b98.dat
+       50.0       psi50.dat       chi50.dat       b50.dat
        100.0      psi100.dat      chi100.dat      b100.dat
-       102.0      psi102.dat      chi102.dat      b102.dat
-       104.0      psi104.dat      chi104.dat      b104.dat
-       106.0      psi106.dat      chi106.dat      b106.dat
-       108.0      psi108.dat      chi108.dat      b108.dat
-       110.0      psi110.dat      chi110.dat      b110.dat
-       112.0      psi112.dat      chi112.dat      b112.dat
-       114.0      psi114.dat      chi114.dat      b114.dat
-       116.0      psi116.dat      chi116.dat      b116.dat
-       118.0      psi118.dat      chi118.dat      b118.dat
-       120.0      psi120.dat      chi120.dat      b120.dat
-       122.0      psi122.dat      chi122.dat      b122.dat
-       124.0      psi124.dat      chi124.dat      b124.dat
-       126.0      psi126.dat      chi126.dat      b126.dat
-       128.0      psi128.dat      chi128.dat      b128.dat
-       130.0      psi130.dat      chi130.dat      b130.dat
-       132.0      psi132.dat      chi132.dat      b132.dat
-       134.0      psi134.dat      chi134.dat      b134.dat
-       136.0      psi136.dat      chi136.dat      b136.dat
-       138.0      psi138.dat      chi138.dat      b138.dat
-       140.0      psi140.dat      chi140.dat      b140.dat
-       142.0      psi142.dat      chi142.dat      b142.dat
-       144.0      psi144.dat      chi144.dat      b144.dat
-       146.0      psi146.dat      chi146.dat      b146.dat
-       148.0      psi148.dat      chi148.dat      b148.dat
        150.0      psi150.dat      chi150.dat      b150.dat
-       152.0      psi152.dat      chi152.dat      b152.dat
-       154.0      psi154.dat      chi154.dat      b154.dat
-       156.0      psi156.dat      chi156.dat      b156.dat
-       158.0      psi158.dat      chi158.dat      b158.dat
-       160.0      psi160.dat      chi160.dat      b160.dat
-       162.0      psi162.dat      chi162.dat      b162.dat
-       164.0      psi164.dat      chi164.dat      b164.dat
-       166.0      psi166.dat      chi166.dat      b166.dat
-       168.0      psi168.dat      chi168.dat      b168.dat
-       170.0      psi170.dat      chi170.dat      b170.dat
-       172.0      psi172.dat      chi172.dat      b172.dat
-       174.0      psi174.dat      chi174.dat      b174.dat
-       176.0      psi176.dat      chi176.dat      b176.dat
-       178.0      psi178.dat      chi178.dat      b178.dat
-       180.0      psi180.dat      chi180.dat      b180.dat
-       182.0      psi182.dat      chi182.dat      b182.dat
-       184.0      psi184.dat      chi184.dat      b184.dat
-       186.0      psi186.dat      chi186.dat      b186.dat
-       188.0      psi188.dat      chi188.dat      b188.dat
-       190.0      psi190.dat      chi190.dat      b190.dat
-       192.0      psi192.dat      chi192.dat      b192.dat
-       194.0      psi194.dat      chi194.dat      b194.dat
-       196.0      psi196.dat      chi196.dat      b196.dat
-       198.0      psi198.dat      chi198.dat      b198.dat
        200.0      psi200.dat      chi200.dat      b200.dat
-       202.0      psi202.dat      chi202.dat      b202.dat
-       204.0      psi204.dat      chi204.dat      b204.dat
-       206.0      psi206.dat      chi206.dat      b206.dat
-       208.0      psi208.dat      chi208.dat      b208.dat
-       210.0      psi210.dat      chi210.dat      b210.dat
-       212.0      psi212.dat      chi212.dat      b212.dat
-       214.0      psi214.dat      chi214.dat      b214.dat
-       216.0      psi216.dat      chi216.dat      b216.dat
-       218.0      psi218.dat      chi218.dat      b218.dat
-       220.0      psi220.dat      chi220.dat      b220.dat
-       222.0      psi222.dat      chi222.dat      b222.dat
-       224.0      psi224.dat      chi224.dat      b224.dat
-       226.0      psi226.dat      chi226.dat      b226.dat
-       228.0      psi228.dat      chi228.dat      b228.dat
-       230.0      psi230.dat      chi230.dat      b230.dat
-       232.0      psi232.dat      chi232.dat      b232.dat
-       234.0      psi234.dat      chi234.dat      b234.dat
-       236.0      psi236.dat      chi236.dat      b236.dat
-       238.0      psi238.dat      chi238.dat      b238.dat
-       240.0      psi240.dat      chi240.dat      b240.dat
-       242.0      psi242.dat      chi242.dat      b242.dat
-       244.0      psi244.dat      chi244.dat      b244.dat
-       246.0      psi246.dat      chi246.dat      b246.dat
-       248.0      psi248.dat      chi248.dat      b248.dat
        250.0      psi250.dat      chi250.dat      b250.dat
-       252.0      psi252.dat      chi252.dat      b252.dat
-       254.0      psi254.dat      chi254.dat      b254.dat
-       256.0      psi256.dat      chi256.dat      b256.dat
-       258.0      psi258.dat      chi258.dat      b258.dat
-       260.0      psi260.dat      chi260.dat      b260.dat
-       262.0      psi262.dat      chi262.dat      b262.dat
-       264.0      psi264.dat      chi264.dat      b264.dat
-       266.0      psi266.dat      chi266.dat      b266.dat
-       268.0      psi268.dat      chi268.dat      b268.dat
-       270.0      psi270.dat      chi270.dat      b270.dat
-       272.0      psi272.dat      chi272.dat      b272.dat
-       274.0      psi274.dat      chi274.dat      b274.dat
-       276.0      psi276.dat      chi276.dat      b276.dat
-       278.0      psi278.dat      chi278.dat      b278.dat
-       280.0      psi280.dat      chi280.dat      b280.dat
-       282.0      psi282.dat      chi282.dat      b282.dat
-       284.0      psi284.dat      chi284.dat      b284.dat
-       286.0      psi286.dat      chi286.dat      b286.dat
-       288.0      psi288.dat      chi288.dat      b288.dat
-       290.0      psi290.dat      chi290.dat      b290.dat
-       292.0      psi292.dat      chi292.dat      b292.dat
-       294.0      psi294.dat      chi294.dat      b294.dat
-       296.0      psi296.dat      chi296.dat      b296.dat
-       298.0      psi298.dat      chi298.dat      b298.dat
        300.0      psi300.dat      chi300.dat      b300.dat
+       350.0      psi350.dat      chi350.dat      b350.dat
+       400.0      psi400.dat      chi400.dat      b400.dat
+       450.0      psi450.dat      chi450.dat      b450.dat
+       500.0      psi500.dat      chi500.dat      b500.dat
+       550.0      psi550.dat      chi550.dat      b550.dat
+       600.0      psi600.dat      chi600.dat      b600.dat
+       650.0      psi650.dat      chi650.dat      b650.dat
+       700.0      psi700.dat      chi700.dat      b700.dat
+       750.0      psi750.dat      chi750.dat      b750.dat
+       800.0      psi800.dat      chi800.dat      b800.dat
+       850.0      psi850.dat      chi850.dat      b850.dat
+       900.0      psi900.dat      chi900.dat      b900.dat
+       950.0      psi950.dat      chi950.dat      b950.dat
+      1000.0     psi1000.dat     chi1000.dat     b1000.dat
 # ---------------------------------------------------------------------
 DIAGNOST
 #    IT1     IT2 ----(PERFORM DIAGNOSIS FOR EVERY 'IT1' OR 'IT2' STEPS)
 #                             (!! IT2 IS CURRENTLY A DUMMY VARIABLE !!)
-       5      40
+      50      40
 # ---------------------------------------------------------------------
 LINEAR
 #     MM      KK ------------------(LINEAR TERMS !! CURRENTLY DUMMY !!)
@@ -293,7 +163,7 @@ POSTPROCESS
 #    NUM --------------------------------- (NUMBER OF POSTPROCESS JOBS)
        2
 #  START  FINISH     JOB   SLICEI --(STARTINT,FINISHINT,JOBTYPE,SLICEI)
-      0     150        1      314
-      0     150        2      139
+      0     20        1      314
+      0     20        2      139
 # ---------------------------------------------------------------------
 END
