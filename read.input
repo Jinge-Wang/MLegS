@@ -80,7 +80,7 @@ STRAIN
 # ---------------------------------------------------------------------
 REMOVE
 #     SW     INT -------(VORTEX REMOVAL SWITCH & FOR EVERY 'INT' STEPS)
-       2    2000
+       2    5000
 # ---------------------------------------------------------------------
 SAVEDIR
 #      DIRECTORY -------------(DIRECTOR WHERE ALL DAT FILES ARE STORED)
@@ -111,35 +111,215 @@ BI
 # ---------------------------------------------------------------------
 OUTPUTS
 #     NE --------------------------(NUMBER OF SNAPSHOTS OF PSI AND CHI)
-      20
+     200
 # ---------------------------------------------------------------------
 #      T         PSIX_F         CHIX_F         BX_F --(SNAPTIME, FILES)
 # (NE LINES. THE LAST SNAPSHOT TIME DETERMINES THE PROGRAM TERMINATION)
-       50.0       psi50.dat       chi50.dat       b50.dat
-       100.0      psi100.dat      chi100.dat      b100.dat
-       150.0      psi150.dat      chi150.dat      b150.dat
-       200.0      psi200.dat      chi200.dat      b200.dat
-       250.0      psi250.dat      chi250.dat      b250.dat
-       300.0      psi300.dat      chi300.dat      b300.dat
-       350.0      psi350.dat      chi350.dat      b350.dat
-       400.0      psi400.dat      chi400.dat      b400.dat
-       450.0      psi450.dat      chi450.dat      b450.dat
-       500.0      psi500.dat      chi500.dat      b500.dat
-       550.0      psi550.dat      chi550.dat      b550.dat
-       600.0      psi600.dat      chi600.dat      b600.dat
-       650.0      psi650.dat      chi650.dat      b650.dat
-       700.0      psi700.dat      chi700.dat      b700.dat
-       750.0      psi750.dat      chi750.dat      b750.dat
-       800.0      psi800.dat      chi800.dat      b800.dat
-       850.0      psi850.dat      chi850.dat      b850.dat
-       900.0      psi900.dat      chi900.dat      b900.dat
-       950.0      psi950.dat      chi950.dat      b950.dat
-      1000.0     psi1000.dat     chi1000.dat     b1000.dat
+       500.0       psi500.dat       chi500.dat       b500.dat
+      1000.0      psi1000.dat      chi1000.dat      b1000.dat
+      1500.0      psi1500.dat      chi1500.dat      b1500.dat
+      2000.0      psi2000.dat      chi2000.dat      b2000.dat
+      2500.0      psi2500.dat      chi2500.dat      b2500.dat
+      3000.0      psi3000.dat      chi300.dat       b3000.dat
+      3500.0      psi3500.dat      chi3500.dat      b3500.dat
+      4000.0      psi4000.dat      chi4000.dat      b4000.dat
+      4500.0      psi4500.dat      chi4500.dat      b4500.dat
+      5000.0      psi5000.dat      chi5000.dat      b5000.dat
+      5500.0      psi5500.dat      chi5500.dat      b5500.dat
+      6000.0      psi6000.dat      chi6000.dat      b6000.dat
+      6500.0      psi6500.dat      chi6500.dat      b6500.dat
+      7000.0      psi7000.dat      chi7000.dat      b7000.dat
+      7500.0      psi7500.dat      chi7500.dat      b7500.dat
+      8000.0      psi8000.dat      chi8000.dat      b8000.dat
+      8500.0      psi8500.dat      chi8500.dat      b8500.dat
+      9000.0      psi9000.dat      chi9000.dat      b9000.dat
+      9500.0      psi9500.dat      chi9500.dat      b9500.dat
+     10000.0     psi10000.dat     chi10000.dat     b10000.dat
+     10500.0     psi10500.dat     chi10500.dat     b10500.dat
+     11000.0     psi11000.dat     chi11000.dat     b11000.dat
+     11500.0     psi11500.dat     chi11500.dat     b11500.dat
+     12000.0     psi12000.dat     chi12000.dat     b12000.dat
+     12500.0     psi12500.dat     chi12500.dat     b12500.dat
+     13000.0     psi13000.dat     chi13000.dat     b13000.dat
+     13500.0     psi13500.dat     chi13500.dat     b13500.dat
+     14000.0     psi14000.dat     chi14000.dat     b14000.dat
+     14500.0     psi14500.dat     chi14500.dat     b14500.dat
+     15000.0     psi15000.dat     chi15000.dat     b15000.dat
+     15500.0     psi15500.dat     chi15500.dat     b15500.dat
+     16000.0     psi16000.dat     chi16000.dat     b16000.dat
+     16500.0     psi16500.dat     chi16500.dat     b16500.dat
+     17000.0     psi17000.dat     chi17000.dat     b17000.dat
+     17500.0     psi17500.dat     chi17500.dat     b17500.dat
+     18000.0     psi18000.dat     chi18000.dat     b18000.dat
+     18500.0     psi18500.dat     chi18500.dat     b18500.dat
+     19000.0     psi19000.dat     chi19000.dat     b19000.dat
+     19500.0     psi19500.dat     chi19500.dat     b19500.dat
+     20000.0     psi20000.dat     chi20000.dat     b20000.dat
+     20500.0     psi20500.dat     chi20500.dat     b20500.dat
+     21000.0     psi21000.dat     chi21000.dat     b21000.dat
+     21500.0     psi21500.dat     chi21500.dat     b21500.dat
+     22000.0     psi22000.dat     chi22000.dat     b22000.dat
+     22500.0     psi22500.dat     chi22500.dat     b22500.dat
+     23000.0     psi23000.dat     chi23000.dat     b23000.dat
+     23500.0     psi23500.dat     chi23500.dat     b23500.dat
+     24000.0     psi24000.dat     chi24000.dat     b24000.dat
+     24500.0     psi24500.dat     chi24500.dat     b24500.dat
+     25000.0     psi25000.dat     chi25000.dat     b25000.dat
+     25500.0     psi25500.dat     chi25500.dat     b25500.dat
+     26000.0     psi26000.dat     chi26000.dat     b26000.dat
+     26500.0     psi26500.dat     chi26500.dat     b26500.dat
+     27000.0     psi27000.dat     chi27000.dat     b27000.dat
+     27500.0     psi27500.dat     chi27500.dat     b27500.dat
+     28000.0     psi28000.dat     chi28000.dat     b28000.dat
+     28500.0     psi28500.dat     chi28500.dat     b28500.dat
+     29000.0     psi29000.dat     chi29000.dat     b29000.dat
+     29500.0     psi29500.dat     chi29500.dat     b29500.dat
+     30000.0     psi30000.dat     chi30000.dat     b30000.dat
+     30500.0     psi30500.dat     chi30500.dat     b30500.dat
+     31000.0     psi31000.dat     chi31000.dat     b31000.dat
+     31500.0     psi31500.dat     chi31500.dat     b31500.dat
+     32000.0     psi32000.dat     chi32000.dat     b32000.dat
+     32500.0     psi32500.dat     chi32500.dat     b32500.dat
+     33000.0     psi33000.dat     chi33000.dat     b33000.dat
+     33500.0     psi33500.dat     chi33500.dat     b33500.dat
+     34000.0     psi34000.dat     chi34000.dat     b34000.dat
+     34500.0     psi34500.dat     chi34500.dat     b34500.dat
+     35000.0     psi35000.dat     chi35000.dat     b35000.dat
+     35500.0     psi35500.dat     chi35500.dat     b35500.dat
+     36000.0     psi36000.dat     chi36000.dat     b36000.dat
+     36500.0     psi36500.dat     chi36500.dat     b36500.dat
+     37000.0     psi37000.dat     chi37000.dat     b37000.dat
+     37500.0     psi37500.dat     chi37500.dat     b37500.dat
+     38000.0     psi38000.dat     chi38000.dat     b38000.dat
+     38500.0     psi38500.dat     chi38500.dat     b38500.dat
+     39000.0     psi39000.dat     chi39000.dat     b39000.dat
+     39500.0     psi39500.dat     chi39500.dat     b39500.dat
+     40000.0     psi40000.dat     chi40000.dat     b40000.dat
+     40500.0     psi40500.dat     chi40500.dat     b40500.dat
+     41000.0     psi41000.dat     chi41000.dat     b41000.dat
+     41500.0     psi41500.dat     chi41500.dat     b41500.dat
+     42000.0     psi42000.dat     chi42000.dat     b42000.dat
+     42500.0     psi42500.dat     chi42500.dat     b42500.dat
+     43000.0     psi43000.dat     chi43000.dat     b43000.dat
+     43500.0     psi43500.dat     chi43500.dat     b43500.dat
+     44000.0     psi44000.dat     chi44000.dat     b44000.dat
+     44500.0     psi44500.dat     chi44500.dat     b44500.dat
+     45000.0     psi45000.dat     chi45000.dat     b45000.dat
+     45500.0     psi45500.dat     chi45500.dat     b45500.dat
+     46000.0     psi46000.dat     chi46000.dat     b46000.dat
+     46500.0     psi46500.dat     chi46500.dat     b46500.dat
+     47000.0     psi47000.dat     chi47000.dat     b47000.dat
+     47500.0     psi47500.dat     chi47500.dat     b47500.dat
+     48000.0     psi48000.dat     chi48000.dat     b48000.dat
+     48500.0     psi48500.dat     chi48500.dat     b48500.dat
+     49000.0     psi49000.dat     chi49000.dat     b49000.dat
+     49500.0     psi49500.dat     chi49500.dat     b49500.dat
+     50000.0     psi50000.dat     chi50000.dat     b50000.dat
+     50500.0     psi50500.dat     chi50500.dat     b50500.dat
+     51000.0     psi51000.dat     chi51000.dat     b51000.dat
+     51500.0     psi51500.dat     chi51500.dat     b51500.dat
+     52000.0     psi52000.dat     chi52000.dat     b52000.dat
+     52500.0     psi52500.dat     chi52500.dat     b52500.dat
+     53000.0     psi53000.dat     chi53000.dat     b53000.dat
+     53500.0     psi53500.dat     chi53500.dat     b53500.dat
+     54000.0     psi54000.dat     chi54000.dat     b54000.dat
+     54500.0     psi54500.dat     chi54500.dat     b54500.dat
+     55000.0     psi55000.dat     chi55000.dat     b55000.dat
+     55500.0     psi55500.dat     chi55500.dat     b55500.dat
+     56000.0     psi56000.dat     chi56000.dat     b56000.dat
+     56500.0     psi56500.dat     chi56500.dat     b56500.dat
+     57000.0     psi57000.dat     chi57000.dat     b57000.dat
+     57500.0     psi57500.dat     chi57500.dat     b57500.dat
+     58000.0     psi58000.dat     chi58000.dat     b58000.dat
+     58500.0     psi58500.dat     chi58500.dat     b58500.dat
+     59000.0     psi59000.dat     chi59000.dat     b59000.dat
+     59500.0     psi59500.dat     chi59500.dat     b59500.dat
+     60000.0     psi60000.dat     chi60000.dat     b60000.dat
+     60500.0     psi60500.dat     chi60500.dat     b60500.dat
+     61000.0     psi61000.dat     chi61000.dat     b61000.dat
+     61500.0     psi61500.dat     chi61500.dat     b61500.dat
+     62000.0     psi62000.dat     chi62000.dat     b62000.dat
+     62500.0     psi62500.dat     chi62500.dat     b62500.dat
+     63000.0     psi63000.dat     chi63000.dat     b63000.dat
+     63500.0     psi63500.dat     chi63500.dat     b63500.dat
+     64000.0     psi64000.dat     chi64000.dat     b64000.dat
+     64500.0     psi64500.dat     chi64500.dat     b64500.dat
+     65000.0     psi65000.dat     chi65000.dat     b65000.dat
+     65500.0     psi65500.dat     chi65500.dat     b65500.dat
+     66000.0     psi66000.dat     chi66000.dat     b66000.dat
+     66500.0     psi66500.dat     chi66500.dat     b66500.dat
+     67000.0     psi67000.dat     chi67000.dat     b67000.dat
+     67500.0     psi67500.dat     chi67500.dat     b67500.dat
+     68000.0     psi68000.dat     chi68000.dat     b68000.dat
+     68500.0     psi68500.dat     chi68500.dat     b68500.dat
+     69000.0     psi69000.dat     chi69000.dat     b69000.dat
+     69500.0     psi69500.dat     chi69500.dat     b69500.dat
+     70000.0     psi70000.dat     chi70000.dat     b70000.dat
+     70500.0     psi70500.dat     chi70500.dat     b70500.dat
+     71000.0     psi71000.dat     chi71000.dat     b71000.dat
+     71500.0     psi71500.dat     chi71500.dat     b71500.dat
+     72000.0     psi72000.dat     chi72000.dat     b72000.dat
+     72500.0     psi72500.dat     chi72500.dat     b72500.dat
+     73000.0     psi73000.dat     chi73000.dat     b73000.dat
+     73500.0     psi73500.dat     chi73500.dat     b73500.dat
+     74000.0     psi74000.dat     chi74000.dat     b74000.dat
+     74500.0     psi74500.dat     chi74500.dat     b74500.dat
+     75000.0     psi75000.dat     chi75000.dat     b75000.dat
+     75500.0     psi75500.dat     chi75500.dat     b75500.dat
+     76000.0     psi76000.dat     chi76000.dat     b76000.dat
+     76500.0     psi76500.dat     chi76500.dat     b76500.dat
+     77000.0     psi77000.dat     chi77000.dat     b77000.dat
+     77500.0     psi77500.dat     chi77500.dat     b77500.dat
+     78000.0     psi78000.dat     chi78000.dat     b78000.dat
+     78500.0     psi78500.dat     chi78500.dat     b78500.dat
+     79000.0     psi79000.dat     chi79000.dat     b79000.dat
+     79500.0     psi79500.dat     chi79500.dat     b79500.dat
+     80000.0     psi80000.dat     chi80000.dat     b80000.dat
+     80500.0     psi80500.dat     chi80500.dat     b80500.dat
+     81000.0     psi81000.dat     chi81000.dat     b81000.dat
+     81500.0     psi81500.dat     chi81500.dat     b81500.dat
+     82000.0     psi82000.dat     chi82000.dat     b82000.dat
+     82500.0     psi82500.dat     chi82500.dat     b82500.dat
+     83000.0     psi83000.dat     chi83000.dat     b83000.dat
+     83500.0     psi83500.dat     chi83500.dat     b83500.dat
+     84000.0     psi84000.dat     chi84000.dat     b84000.dat
+     84500.0     psi84500.dat     chi84500.dat     b84500.dat
+     85000.0     psi85000.dat     chi85000.dat     b85000.dat
+     85500.0     psi85500.dat     chi85500.dat     b85500.dat
+     86000.0     psi86000.dat     chi86000.dat     b86000.dat
+     86500.0     psi86500.dat     chi86500.dat     b86500.dat
+     87000.0     psi87000.dat     chi87000.dat     b87000.dat
+     87500.0     psi87500.dat     chi87500.dat     b87500.dat
+     88000.0     psi88000.dat     chi88000.dat     b88000.dat
+     88500.0     psi88500.dat     chi88500.dat     b88500.dat
+     89000.0     psi89000.dat     chi89000.dat     b89000.dat
+     89500.0     psi89500.dat     chi89500.dat     b89500.dat
+     90000.0     psi90000.dat     chi90000.dat     b90000.dat
+     90500.0     psi90500.dat     chi90500.dat     b90500.dat
+     91000.0     psi91000.dat     chi91000.dat     b91000.dat
+     91500.0     psi91500.dat     chi91500.dat     b91500.dat
+     92000.0     psi92000.dat     chi92000.dat     b92000.dat
+     92500.0     psi92500.dat     chi92500.dat     b92500.dat
+     93000.0     psi93000.dat     chi93000.dat     b93000.dat
+     93500.0     psi93500.dat     chi93500.dat     b93500.dat
+     94000.0     psi94000.dat     chi94000.dat     b94000.dat
+     94500.0     psi94500.dat     chi94500.dat     b94500.dat
+     95000.0     psi95000.dat     chi95000.dat     b95000.dat
+     95500.0     psi95500.dat     chi95500.dat     b95500.dat
+     96000.0     psi96000.dat     chi96000.dat     b96000.dat
+     96500.0     psi96500.dat     chi96500.dat     b96500.dat
+     97000.0     psi97000.dat     chi97000.dat     b97000.dat
+     97500.0     psi97500.dat     chi97500.dat     b97500.dat
+     98000.0     psi98000.dat     chi98000.dat     b98000.dat
+     98500.0     psi98500.dat     chi98500.dat     b98500.dat
+     99000.0     psi99000.dat     chi99000.dat     b99000.dat
+     99500.0     psi99500.dat     chi99500.dat     b99500.dat
+    100000.0    psi100000.dat    chi100000.dat    b100000.dat
 # ---------------------------------------------------------------------
 DIAGNOST
 #    IT1     IT2 ----(PERFORM DIAGNOSIS FOR EVERY 'IT1' OR 'IT2' STEPS)
 #                             (!! IT2 IS CURRENTLY A DUMMY VARIABLE !!)
-      50      40
+     250      40
 # ---------------------------------------------------------------------
 LINEAR
 #     MM      KK ------------------(LINEAR TERMS !! CURRENTLY DUMMY !!)
@@ -163,7 +343,7 @@ POSTPROCESS
 #    NUM --------------------------------- (NUMBER OF POSTPROCESS JOBS)
        2
 #  START  FINISH     JOB   SLICEI --(STARTINT,FINISHINT,JOBTYPE,SLICEI)
-      0     20        1      314
+      0     20        1      209
       0     20        2      139
 # ---------------------------------------------------------------------
 END

@@ -2,14 +2,14 @@
 # SBATCH script to run bsnsq_test on the cluster
 
 #SBATCH -A phy220056          # Allocation name
-#SBATCH --nodes=1             # Total # of nodes
-#SBATCH --ntasks-per-node=64  # Total # of MPI tasks per node
-#SBATCH --cpus-per-task=2
-#SBATCH --time=00:30:00
+#SBATCH --nodes=8             # Total # of nodes
+#SBATCH --ntasks-per-node=16  # Total # of MPI tasks per node
+#SBATCH --cpus-per-task=8
+#SBATCH --time=24:00:00
 #SBATCH -J bsnsq_test
 #SBATCH -o bsnsq_test.o%j
 #SBATCH -e bsnsq_test.e%j
-#SBATCH -p shared
+#SBATCH -p wholenode
 #SBATCH --mail-user=jinge@berkeley.edu
 #SBATCH --mail-type=end
 
