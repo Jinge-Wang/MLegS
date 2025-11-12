@@ -555,6 +555,7 @@ DO WHILE (CHECKER .LT. 1000)
 
   ! 4> MARCH - BOUSSINESQ DATA
   ELSEIF(COM(1).EQ.'BOUSSINESQ') THEN
+    IF (.NOT.ALLOCATED(BSNSQ)) ALLOCATE(BSNSQ)
     CALL READCOM(IR,COM)
     BSNSQ%BV0 = ATOF(COM(1))
     BSNSQ%OMEGA = ATOF(COM(2))
@@ -972,11 +973,13 @@ WRITE(FUNIT,'(A)') '#  ADJSW  ADJINT -(HYPERV ADJUSTMENT SWITCH & FOR EVERY ''AD
 WRITE(FUNIT,'(2I8)') VISC%ADJSW, VISC%ADJINT
 WRITE(FUNIT,'(A)') '# ---------------------------------------------------------------------'
 
-WRITE(FUNIT,'(A)') 'BOUSSINESQ'
-WRITE(FUNIT,'(A)') '#     BV0    OMEGA    KAPPA   KAPPAP    ABSW ------(USE A-B FOR LINEAR)'
-WRITE(FUNIT,'(2F9.3,2ES11.4,I8)') BSNSQ%BV0, BSNSQ%OMEGA, BSNSQ%KAPPA, BSNSQ%KAPPAP, &
-                 MERGE(1, 0, BSNSQ%ADAMS)
-WRITE(FUNIT,'(A)') '# ---------------------------------------------------------------------'
+IF (ALLOCATED(BSNSQ)) THEN
+  WRITE(FUNIT,'(A)') 'BOUSSINESQ'
+  WRITE(FUNIT,'(A)') '#     BV0    OMEGA    KAPPA   KAPPAP    ABSW ------(USE A-B FOR LINEAR)'
+  WRITE(FUNIT,'(2F9.3,2ES11.4,I8)') BSNSQ%BV0, BSNSQ%OMEGA, BSNSQ%KAPPA, BSNSQ%KAPPAP, &
+                   MERGE(1, 0, BSNSQ%ADAMS)
+  WRITE(FUNIT,'(A)') '# ---------------------------------------------------------------------'
+ENDIF
 
 WRITE(FUNIT,'(A)') 'FREESTREAM'
 WRITE(FUNIT,'(A)') '#     SW      UX      UY      UZ     INT -(SWITCH, UX, UY, UZ, # STEPS)'
