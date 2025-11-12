@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=128
 #SBATCH --cpus-per-task=1
-#SBATCH --time=00:10:00
+#SBATCH --time=00:15:00
 #SBATCH -J post
 #SBATCH -o postproc.o%j
 #SBATCH -e postproc.e%j
