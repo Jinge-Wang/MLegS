@@ -410,13 +410,13 @@ subroutine initialize_gaussian_vortex( &
   ! old: extract omega0 from rup(scalar) using theta-z averaging
   ! call get_omega_from_rup(r0, rup_bg_phys, omega0)
 
-  ! Directly use BSNSQ%RUP0 to extract omega0
+  ! Directly use BSNSQ%OMEGA0 to extract omega0
   nn = minloc(abs(tfm%r - r0), 1)
   if (abs(tfm%r(nn) - r0) .le. 1.0e-12_p8) then
     call mprint('Error: Vortex center r0 is too close to zero.')
     call mpi_abort(MPI_COMM_WORLD, 1, ierr)
   endif
-  omega0 = BSNSQ%RUP0(nn)/(tfm%r(nn)**2)
+  omega0 = BSNSQ%OMEGA0(nn)
 
   if (mpi_rank == 0) then
     write(*,'(A)') '=== Gaussian Vortex ==='
