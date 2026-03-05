@@ -2680,7 +2680,7 @@ WRITE(10,109) NDIM, M_1, K_VAL_1
     WRITE(10,'(9X,A9,9X,A9)') 're(sigma)','im(sigma)'
     WRITE(10,113) REAL(M_eig_1),AIMAG(M_eig_1)
     WRITE(10,*) 'radial spectral coefficients'
-    WRITE(10,111) 're(psi)','im(psi)','re(chi)','im(chi)','re(chi)','im(chi)'
+    WRITE(10,111) 're(psi)','im(psi)','re(chi)','im(chi)','re(b)','im(b)'
 DO I = 1,NDIM
     WRITE(10,112) REAL(VEC_1(I)),AIMAG(VEC_1(I)),REAL(VEC_1(NDIM+I)),AIMAG(VEC_1(NDIM+I)),REAL(VEC_1(2*NDIM+I)),AIMAG(VEC_1(2*NDIM+I))
 ENDDO

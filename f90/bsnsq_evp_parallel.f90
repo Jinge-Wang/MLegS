@@ -1,0 +1,440 @@
+PROGRAM BSNSQ_EVP_PARALLEL
+!=======================================================================
+! [USAGE]:
+! FIND EIGENVALUES AND EIGENVECTORS OF THE LINEARIZED N-S EQUATIONS
+! EXPRESSED IN A POLOIDAL-TOROLIDALLY DECOMPOSED FORM
+! OPERATOR H CORRESPONDS TO EIGENVECTOR: [PSI,DEL2CHI]^T
+!=======================================================================
+USE omp_lib
+USE MPI
+USE MOD_MISC
+USE MOD_BANDMAT
+USE MOD_EIG
+USE MOD_FD
+USE MOD_LIN_LEGENDRE
+USE MOD_SCALAR3
+USE MOD_FFT
+USE MOD_LAYOUT
+USE MOD_LEGOPS
+USE MOD_BOUSSINESQ
+USE MOD_MARCH
+USE MOD_INIT
+USE MOD_EVP
+USE MOD_DIAGNOSTICS
+
+IMPLICIT NONE
+INTEGER     :: II, IK, NUM_ARGS, I_ARG
+INTEGER     :: M_BAR, NR_MK, NK
+REAL(P8)    :: K_BAR, K_START, K_END, DK
+LOGICAL     :: HAS_DK, HAS_NK
+CHARACTER(LEN=256) :: ARG_STR
+
+COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: M_eig, EIG_R_BAR, RUR_BAR, RUP_BAR, UZ_BAR, B_R_BAR
+COMPLEX(P8), DIMENSION(:, :), ALLOCATABLE:: M_mat, EIG_R_mat, EIG_L_mat
+COMPLEX(P8), DIMENSION(:, :, :), ALLOCATABLE:: BSNSQ_V, BSNSQ_H
+
+! STRING FORMATTING FOR OUTPUT
+CHARACTER(LEN=256):: FILENAME, DIR_PATH
+CHARACTER(LEN=32) :: STR_BV, STR_W, STR_M, STR_K, STR_NR
+INTEGER:: FID, STAT
+
+! MPI INITILIZATION
+CALL SETUP_ENVIRONMENT('NOECHO')
+
+! SPLIT THE FORMATION OF H INTO DIFFERENT PROCS
+CALL MPI_COMM_RANK(MPI_COMM_WORLD, MPI_GLB_RANK, IERR)
+CALL MPI_COMM_SIZE(MPI_COMM_WORLD, MPI_GLB_PROCS, IERR)
+CALL MPI_Comm_split(MPI_COMM_WORLD, MPI_GLB_RANK, 0, newcomm, IERR) 
+
+! ======================================================================
+! PARSE COMMAND LINE ARGUMENTS (FLAG-BASED)
+! Usage: mpirun -n 4 ./bin/bsnsq_evp_parallel_exec -m 1 -kstart 1.0 -kend 10.0 -dk 0.5
+!    or: mpirun -n 4 ./bin/bsnsq_evp_parallel_exec -m 1 -kstart 1.0 -kend 10.0 -nk 19
+! ======================================================================
+! Default values
+M_BAR = 1; K_START = 1.0_P8; K_END = 1.0_P8
+DK = 1.0_P8; NK = 1
+HAS_DK = .FALSE.; HAS_NK = .FALSE.
+
+IF (MPI_GLB_RANK == 0) THEN
+    NUM_ARGS = COMMAND_ARGUMENT_COUNT()
+    I_ARG = 1
+    
+    DO WHILE (I_ARG <= NUM_ARGS)
+        CALL GET_COMMAND_ARGUMENT(I_ARG, ARG_STR)
+        
+        IF (TRIM(ARG_STR) == '-m') THEN
+            I_ARG = I_ARG + 1; CALL GET_COMMAND_ARGUMENT(I_ARG, ARG_STR); READ(ARG_STR, *) M_BAR
+        ELSE IF (TRIM(ARG_STR) == '-kstart') THEN
+            I_ARG = I_ARG + 1; CALL GET_COMMAND_ARGUMENT(I_ARG, ARG_STR); READ(ARG_STR, *) K_START
+        ELSE IF (TRIM(ARG_STR) == '-kend') THEN
+            I_ARG = I_ARG + 1; CALL GET_COMMAND_ARGUMENT(I_ARG, ARG_STR); READ(ARG_STR, *) K_END
+        ELSE IF (TRIM(ARG_STR) == '-dk') THEN
+            I_ARG = I_ARG + 1; CALL GET_COMMAND_ARGUMENT(I_ARG, ARG_STR); READ(ARG_STR, *) DK
+            HAS_DK = .TRUE.
+        ELSE IF (TRIM(ARG_STR) == '-nk') THEN
+            I_ARG = I_ARG + 1; CALL GET_COMMAND_ARGUMENT(I_ARG, ARG_STR); READ(ARG_STR, *) NK
+            HAS_NK = .TRUE.
+        END IF
+        I_ARG = I_ARG + 1
+    END DO
+
+    ! Resolve linspace equivalents
+    IF (HAS_NK .AND. NK > 1) THEN
+        DK = (K_END - K_START) / DBLE(NK - 1)
+    ELSE IF (HAS_DK .AND. ABS(DK) > 1.0D-12) THEN
+        NK = FLOOR((K_END - K_START) / DK) + 1
+    ELSE
+        NK = 1
+        K_END = K_START
+    END IF
+
+    WRITE(*,*) "Running EVP Sweep | M =", M_BAR, "| K =", K_START, "to", K_END, "in", NK, "steps (dk=", DK, ")"
+END IF
+
+! Broadcast setup variables to all processes
+CALL MPI_BCAST(M_BAR, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, IERR)
+CALL MPI_BCAST(K_START, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, IERR)
+CALL MPI_BCAST(DK, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, IERR)
+CALL MPI_BCAST(NK, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, IERR)
+
+! Q-VORTEX INITIALIZATION
+NTH = 2; NX = 4
+NTCHOP = 2; NXCHOP = 2
+ZLEN = 1.D0; CALL LEGINIT(newcomm)
+ALLOCATE (RUR0(NR), RUP0(NR), UZ0(NR), ROR0(NR), ROP0(NR), OZ0(NR))
+CALL INIT_LOOP(RUR0, RUP0, UZ0, ROR0, ROP0, OZ0)
+ALLOCATE(BSNSQ%OMEGA0(NDIMR), BSNSQ%OZ0(NDIMR), BSNSQ%SIGMA0(NDIMR))
+BSNSQ%OMEGA0 = 0.0D0; BSNSQ%OMEGA0(:NR) = RUP0(:NR) / (TFM%R(:NR)**2)
+BSNSQ%OZ0  = 0.0D0; BSNSQ%OZ0(:NR) = OZ0(:NR)
+BSNSQ%SIGMA0 = 0.0D0; BSNSQ%SIGMA0 = BSNSQ%LOCAL_SHEAR(IS_REFACTORED=.TRUE.)
+IF (BSNSQ%OMEGA .EQ. 0.D0) THEN 
+    BSNSQ%OMEGA = SIGN(1.0D-8, BSNSQ%OMEGA0(MAXLOC(ABS(BSNSQ%OMEGA0),DIM=1)))
+ENDIF
+
+! CALCULATE OPERATOR MATRICES (Only depends on M, done once!)
+ALLOCATE(BSNSQ_H(2, 2, NR), BSNSQ_V(2, 2, NR))
+CALL CALC_LIN_OP(BSNSQ_H, BSNSQ_V, M_BAR)
+
+! ======================================================================
+! SWEEP OVER K VALUES (Linspace Logic)
+! ======================================================================
+DO IK = 1, NK
+    
+    ! Calculate exact K to avoid floating-point drift
+    K_BAR = K_START + DBLE(IK - 1) * DK
+
+    ! OBTAIN EVP MATRIX, EIGENVALUE, AND EIGENVECTORS
+    CALL EIG_MATRIX_BSNSQ2(M_BAR, K_BAR, BSNSQ_H, BSNSQ_V, M_mat, M_eig, &
+                           EIG_VEC_R = EIG_R_mat, EIG_VEC_L = EIG_L_mat, &
+                           comm_grp=newcomm, serial_switch=.false.) 
+    NR_MK = NRCHOPS(2)
+
+    ! OUTPUT BLOCK
+    IF (MPI_GLB_RANK .EQ. 0) THEN
+        
+        ! Clean string formatting for Python regex parsing 
+        WRITE(STR_BV, '(F12.4)') BSNSQ%BV0;   STR_BV = TRIM(ADJUSTL(STR_BV))
+        WRITE(STR_W, '(F12.4)') BSNSQ%OMEGA;  STR_W  = TRIM(ADJUSTL(STR_W))
+        WRITE(STR_M, '(I12)') M_BAR;          STR_M  = TRIM(ADJUSTL(STR_M))
+        WRITE(STR_K, '(F12.4)') K_BAR;        STR_K  = TRIM(ADJUSTL(STR_K))
+        WRITE(STR_NR, '(I12)') NRCHOP;        STR_NR = TRIM(ADJUSTL(STR_NR))
+
+        ! --- 1. SAVE EIGENVALUES ---
+        FILENAME = './data/bsnsq_eig_bv_' // TRIM(STR_BV) // '_w_' // TRIM(STR_W) // &
+                   '_m_' // TRIM(STR_M) // '_k_' // TRIM(STR_K) // '_nr_' // TRIM(STR_NR) // '.txt'
+                   
+        open(FID, FILE=TRIM(FILENAME), STATUS='unknown', ACTION='WRITE', IOSTAT=IERR)
+        DO II = 1, SIZE(M_eig)
+            WRITE(FID,*) 'II = ', II, ':', M_eig(II), '-', EIGRES(EIG_R_mat(:2*NR_MK,II), M_BAR)
+        ENDDO
+        close(FID)
+        
+        WRITE(*,*) "Saved Eigenvalues:", TRIM(FILENAME)
+
+        ! --- 2. SAVE VELOCITY PROFILES ---
+        DIR_PATH = './data/bsnsq_vel/bv_' // TRIM(STR_BV) // '_w_' // TRIM(STR_W) // &
+                   '_m_' // TRIM(STR_M) // '_k_' // TRIM(STR_K) // '_nr_' // TRIM(STR_NR)
+        CALL SYSTEM('mkdir -p ' // TRIM(DIR_PATH))
+        WRITE(*,*) 'Created directory: ', TRIM(DIR_PATH)
+        
+        ALLOCATE(EIG_R_BAR(2*NR_MK))
+        DO II = 1, SIZE(M_eig)
+            EIG_R_BAR = EIG_R_mat(:2*NR_MK, II)
+            
+            ALLOCATE(B_R_BAR(NR_MK))
+            B_R_BAR = EIG_R_mat(2*NR_MK+1:3*NR_MK, II)
+            
+            CALL EIG2VEL(M_BAR, K_BAR, EIG_R_BAR, RUR_BAR, RUP_BAR, UZ_BAR, comm_grp=newcomm, B_VEC_R=B_R_BAR)
+            
+            WRITE(FILENAME,'(A,A,I0,A)') TRIM(DIR_PATH), '/ind_', II, '.txt'
+            CALL SAVE_VEL(RUR_BAR, RUP_BAR, UZ_BAR, TRIM(FILENAME), B_R_BAR)
+            
+            DEALLOCATE(RUR_BAR, RUP_BAR, UZ_BAR, B_R_BAR)
+        END DO
+        DEALLOCATE(EIG_R_BAR)
+
+    ENDIF
+
+    CALL MPI_BARRIER(MPI_COMM_WORLD, IERR)
+
+END DO
+! ======================================================================
+
+! CLEAN UP
+IF (ALLOCATED(M_eig)) DEALLOCATE(M_eig)
+IF (ALLOCATED(EIG_R_mat)) DEALLOCATE(EIG_R_mat)
+IF (ALLOCATED(EIG_L_mat)) DEALLOCATE(EIG_L_mat)
+DEALLOCATE(RUR0, RUP0, UZ0, ROR0, ROP0, OZ0)
+DEALLOCATE(BSNSQ, BSNSQ_H, BSNSQ_V)
+
+IF (MPI_GLB_RANK .EQ. 0) THEN
+    WRITE (*, *) ''
+    WRITE (*, *) 'PROGRAM FINISHED'
+    CALL PRINT_REAL_TIME()  
+END IF
+
+CALL MPI_FINALIZE(IERR)
+
+CONTAINS
+SUBROUTINE lowercase(str)
+CHARACTER(LEN=*), INTENT(INOUT) :: str
+INTEGER :: i, diff
+
+diff = IACHAR('a') - IACHAR('A')
+DO i = 1, LEN_TRIM(str)
+    IF (str(i:i) >= 'A' .AND. str(i:i) <= 'Z') THEN
+    str(i:i) = ACHAR(IACHAR(str(i:i)) + diff)
+    END IF
+END DO
+END SUBROUTINE lowercase
+
+SUBROUTINE EIG_MATRIX_BSNSQ2(MREAD, AKREAD, OP_H, OP_V, H, EIG_VAL, EIG_VEC_R, EIG_VEC_L, comm_grp, serial_switch)
+! ======================================================================
+IMPLICIT NONE
+INTEGER, INTENT(IN)    :: MREAD, comm_grp
+REAL(P8), INTENT(IN)   :: AKREAD
+COMPLEX(P8), DIMENSION(2, 2, NR), INTENT(IN) :: OP_V, OP_H
+COMPLEX(P8), DIMENSION(:, :), ALLOCATABLE, INTENT(INOUT)            :: H
+COMPLEX(P8), DIMENSION(:), ALLOCATABLE, INTENT(INOUT), OPTIONAL     :: EIG_VAL
+COMPLEX(P8), DIMENSION(:, :), ALLOCATABLE, INTENT(INOUT), OPTIONAL  :: EIG_VEC_R, EIG_VEC_L
+LOGICAL, OPTIONAL:: serial_switch
+
+LOGICAL     :: flip_switch =.FALSE., isserial
+INTEGER     :: NR_MK, I, M_ACTUAL, IS
+REAL(P8)    :: AK_ACTUAL
+INTEGER     :: MPI_NR_SIZE, MPI_NR_INDEX
+COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: PSIU, CHIU, BU
+COMPLEX(P8), DIMENSION(:), ALLOCATABLE:: PSI1, CHI1, B1
+
+! COMPUTATION SETUP
+NTH = 2; NX = 4
+NTCHOP = 2 
+NXCHOP = 2 
+
+! SERIAL OR DISTRIBUTED COMPUTATION
+isserial = .FALSE.
+IF (PRESENT(serial_switch)) isserial = serial_switch
+
+! FOR M BEING NEGATIVE, CALCULATES ITS CONJUGATE EVP THEN CONJG BACK
+IF ((MPI_GLB_RANK.EQ.0).OR.(isserial)) THEN
+    IF (MREAD.LT.0) THEN
+        flip_switch = .TRUE.
+        M_ACTUAL = -MREAD
+        AK_ACTUAL = -AKREAD
+    ELSE
+        flip_switch = .FALSE.
+        M_ACTUAL = MREAD
+        AK_ACTUAL = AKREAD
+    ENDIF
+ENDIF
+IF (.NOT.(isserial)) THEN
+    CALL MPI_BCAST(M_ACTUAL, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, IERR)
+    CALL MPI_BCAST(AK_ACTUAL, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, IERR)
+ENDIF
+ZLEN = 2*PI/AK_ACTUAL
+CALL LEGINIT(comm_grp, M_ACTUAL)
+
+! ALLOCATE EVP MATRIX
+NR_MK = NRCHOPS(2)
+IF (ALLOCATED(H) .AND. (SIZE(H, 1) .NE. 3*NR_MK)) THEN
+    DEALLOCATE(H)
+    ALLOCATE(H(3*NR_MK, 3*NR_MK))
+ELSEIF (.NOT. (ALLOCATED(H))) THEN
+    ALLOCATE(H(3*NR_MK, 3*NR_MK))
+END IF
+H = CMPLX(0.D0, 0.D0, P8)
+
+! SPLIT NR_MK
+IF (isserial) THEN
+    MPI_NR_INDEX = 0; MPI_NR_SIZE = NR_MK
+ELSE
+    CALL DECOMPOSE(NR_MK, MPI_GLB_PROCS, MPI_GLB_RANK, MPI_NR_SIZE, MPI_NR_INDEX)
+ENDIF
+
+! MAIN JOB
+ALLOCATE (PSIU(NRCHOPDIM), CHIU(NRCHOPDIM), BU(NRCHOPDIM))
+ALLOCATE (PSI1(NRCHOPDIM), CHI1(NRCHOPDIM), B1(NRCHOPDIM))
+
+DO I = MPI_NR_INDEX + 1, MPI_NR_INDEX + MPI_NR_SIZE
+! ================================ PSI =================================
+    PSIU = 0.D0; CHIU = 0.D0; BU = 0.D0
+    PSIU(I) = 1.D0
+
+    CALL BSNSQ_OP(NRCHOPDIM,PSIU,CHIU,BU,PSI1,CHI1,B1,OP_V,OP_H)
+    H(        1:  NR_MK, I) = PSI1(:NR_MK)
+    H(  NR_MK+1:2*NR_MK, I) = CHI1(:NR_MK)
+    H(2*NR_MK+1:3*NR_MK, I) =   B1(:NR_MK)
+
+! ============================== DEL2CHI ===============================
+    PSIU = 0.D0; CHIU = 0.D0; BU = 0.D0
+    CHIU(I) = 1.D0
+
+    CALL IDEL2_MK(CHIU, CHI1)
+    CHIU = CHI1
+    CHI1 = 0.D0
+    
+    CALL BSNSQ_OP(NRCHOPDIM,PSIU,CHIU,BU,PSI1,CHI1,B1,OP_V,OP_H)
+    H(        1:  NR_MK, I+NR_MK) = PSI1(:NR_MK)
+    H(  NR_MK+1:2*NR_MK, I+NR_MK) = CHI1(:NR_MK)
+    H(2*NR_MK+1:3*NR_MK, I+NR_MK) =   B1(:NR_MK)
+
+! ================================= B ==================================
+    PSIU = 0.D0; CHIU = 0.D0; BU = 0.D0
+    BU(I) = 1.D0
+
+    CALL BSNSQ_OP(NRCHOPDIM,PSIU,CHIU,BU,PSI1,CHI1,B1,OP_V,OP_H)
+    H(        1:  NR_MK, I+2*NR_MK) = PSI1(:NR_MK)
+    H(  NR_MK+1:2*NR_MK, I+2*NR_MK) = CHI1(:NR_MK)
+    H(2*NR_MK+1:3*NR_MK, I+2*NR_MK) =   B1(:NR_MK)
+
+END DO
+DEALLOCATE(PSIU, CHIU, BU)
+DEALLOCATE(PSI1, CHI1, B1)
+
+IF (.NOT.(isserial)) THEN
+    CALL MPI_ALLREDUCE(MPI_IN_PLACE, H, SIZE(H), MPI_DOUBLE_COMPLEX, MPI_SUM, &
+                    MPI_COMM_WORLD, IERR)
+    CALL MPI_BARRIER(MPI_COMM_WORLD, IERR)
+ENDIF
+
+! OUTPUT:
+IF ((MPI_GLB_RANK.EQ.0).OR.(isserial)) THEN  
+    IF (flip_switch) THEN
+        H = CONJG(H)
+    ENDIF
+
+    IF (PRESENT(EIG_VAL)) THEN
+        IF (ALLOCATED(EIG_VAL)) DEALLOCATE (EIG_VAL)
+        ALLOCATE (EIG_VAL(3*NR_MK))
+
+        IF (PRESENT(EIG_VEC_L)) THEN
+            IF (ALLOCATED(EIG_VEC_R)) DEALLOCATE (EIG_VEC_R)
+            IF (ALLOCATED(EIG_VEC_L)) DEALLOCATE (EIG_VEC_L)
+            ALLOCATE (EIG_VEC_R(3*NR_MK, 3*NR_MK), EIG_VEC_L(3*NR_MK, 3*NR_MK))
+            CALL EIGENDECOMPOSE(H, EIG_VAL, ER=EIG_VEC_R, EL=EIG_VEC_L)
+        ELSEIF (PRESENT(EIG_VEC_R)) THEN
+            IF (ALLOCATED(EIG_VEC_R)) DEALLOCATE (EIG_VEC_R)
+            ALLOCATE (EIG_VEC_R(3*NR_MK, 3*NR_MK))
+            CALL EIGENDECOMPOSE(H, EIG_VAL, ER=EIG_VEC_R)
+        ELSE
+            CALL EIGENDECOMPOSE(H, EIG_VAL)
+        END IF
+    END IF
+END IF
+
+RETURN
+
+END SUBROUTINE EIG_MATRIX_BSNSQ2
+
+SUBROUTINE BSNSQ_OP(NSIZE,PSIU,CHIU,BU,PSID,DEL2CHID,BD,OP_V,OP_H)
+!=======================================================================
+IMPLICIT NONE
+INTEGER,INTENT(IN):: NSIZE
+COMPLEX(P8),DIMENSION(NSIZE),INTENT(IN):: PSIU,CHIU,BU
+COMPLEX(P8),DIMENSION(NSIZE),INTENT(INOUT):: PSID,DEL2CHID,BD
+COMPLEX(P8),DIMENSION(2,2,NR),INTENT(IN):: OP_V,OP_H
+
+COMPLEX(P8),DIMENSION(:),ALLOCATABLE:: RURU, RUPU, UZU, BU_COPY
+
+COMPLEX(P8) :: TMP_RURU, TMP_RUPU, TMP_UZU, TMP_BU
+INTEGER :: NN
+
+ALLOCATE(RURU(NSIZE), RUPU(NSIZE), UZU(NSIZE), BU_COPY(NSIZE))
+
+BU_COPY = BU
+CALL CHOPSET(3)
+CALL PC2VEL_MK(PSIU, CHIU, RURU, RUPU, UZU)
+CALL CHOPSET(-3)
+
+CALL RTRAN_MK(RURU, 1) ! GO TO PFF
+CALL RTRAN_MK(RUPU, 1) ! GO TO PFF
+CALL RTRAN_MK(UZU, 1)  ! GO TO PFF
+CALL RTRAN_MK(BU_COPY, 1) ! GO TO PFF
+
+! --- Apply Local 2x2 Operators ---
+DO NN = 1, NR
+    TMP_RURU = OP_H(1,1,NN) * RURU(NN) + OP_H(1,2,NN) * RUPU(NN)
+    TMP_RUPU = OP_H(2,1,NN) * RURU(NN) + OP_H(2,2,NN) * RUPU(NN)
+    
+    TMP_UZU  = OP_V(1,1,NN) * UZU(NN)  + OP_V(1,2,NN) * BU_COPY(NN)
+    TMP_BU   = OP_V(2,1,NN) * UZU(NN)  + OP_V(2,2,NN) * BU_COPY(NN)
+    
+    RURU(NN)    = TMP_RURU
+    RUPU(NN)    = TMP_RUPU
+    UZU(NN)     = TMP_UZU
+    BU_COPY(NN) = TMP_BU
+END DO
+
+IF (SIZE(RURU) > NR) THEN
+    RURU(NR+1:)    = (0.0_P8, 0.0_P8)
+    RUPU(NR+1:)    = (0.0_P8, 0.0_P8)
+    UZU(NR+1:)     = (0.0_P8, 0.0_P8)
+    BU_COPY(NR+1:) = (0.0_P8, 0.0_P8)
+END IF
+
+CALL PROJECT_MK(RURU, RUPU, UZU, PSID, DEL2CHID)
+
+CALL RTRAN_MK(BU_COPY, -1) 
+BD = BU_COPY
+
+DEALLOCATE(RURU, RUPU, UZU, BU_COPY)
+
+RETURN
+END SUBROUTINE BSNSQ_OP
+
+SUBROUTINE CALC_LIN_OP(OP_H, OP_V, MREAD)
+!=======================================================================
+IMPLICIT NONE
+INTEGER, INTENT(IN):: MREAD
+COMPLEX(P8),DIMENSION(2,2,NR),INTENT(INOUT):: OP_V,OP_H
+
+INTEGER :: NN, MM, MSIZE, INTH
+COMPLEX(P8) :: J_SHIFT
+COMPLEX(P8), DIMENSION(2,2) :: S_V, J_V, S_INV_V, J_TEMP
+REAL(P8), DIMENSION(NR) :: OMEGA0
+COMPLEX(P8), ALLOCATABLE, DIMENSION(:,:,:) :: S_H, J_H, S_INV_H
+
+OMEGA0 = BSNSQ%OMEGA0(:NR)
+
+! OBTAIN JORDAN DECOMPOSITION FOR AXISYMMETRIC MODES (M=0)
+CALL CALC_BOUSSI_DIAGV(J_V, S_V, S_INV_V)
+CALL CALC_BOUSSI_DIAGH(J_H, S_H, S_INV_H)
+
+DO NN = 1, NR
+    J_SHIFT = -IU * MREAD * OMEGA0(NN)
+
+    J_TEMP = J_H(:,:,NN) 
+    J_TEMP(1,1) = J_H(1,1,NN) + J_SHIFT 
+    J_TEMP(2,2) = J_H(2,2,NN) + J_SHIFT
+    OP_H(:,:,NN) = MATMUL(S_H(:,:,NN), MATMUL(J_TEMP, S_INV_H(:,:,NN)))
+
+    J_TEMP = J_V 
+    J_TEMP(1,1) = J_V(1,1) + J_SHIFT 
+    J_TEMP(2,2) = J_V(2,2) + J_SHIFT
+    OP_V(:,:,NN) = MATMUL(S_V, MATMUL(J_TEMP, S_INV_V))
+END DO
+
+END SUBROUTINE CALC_LIN_OP
+
+END PROGRAM BSNSQ_EVP_PARALLEL
