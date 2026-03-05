@@ -130,6 +130,18 @@ PUBLIC:: PRINT_MPI_STRATEGY, MPRINT
 ! =========================== UTILITY FUNCS ============================
 PUBLIC:: local_size, local_index, local_proc, count_proc, is_multi_node
 
+! =========================== PROFILING TIMER ==========================
+! A lightweight, string-keyed wall-clock profiler embedded in MOD_FFT.
+! All timer calls are guarded by TIMER_ENABLED; when .FALSE. (default)
+! every call is a no-op and has zero overhead in production runs.
+! MPI_BARRIER is inserted at every TIMER_START / TIMER_END so that the
+! accumulated time on rank-0 reflects true parallel wall-clock cost.
+PUBLIC:: TIMER_INIT            ! enable + zero all entries
+PUBLIC:: TIMER_RESET           ! zero all entries (keep enabled state)
+PUBLIC:: TIMER_START           ! TIMER_START('label') - begin named region
+PUBLIC:: TIMER_END             ! TIMER_END('label')   - end named region
+PUBLIC:: TIMER_REPORT          ! print per-label summary to stdout (rank 0)
+
 !=======================================================================
 !============================ INTERFACES ===============================
 !=======================================================================
@@ -157,6 +169,20 @@ PUBLIC:: local_size, local_index, local_proc, count_proc, is_multi_node
     INTERFACE MSAVE
         MODULE PROCEDURE MSAVE0
     END INTERFACE
+
+!=======================================================================
+!==================== PROFILING TIMER PRIVATE DATA ====================
+!=======================================================================
+  INTEGER, PARAMETER :: TIMER_NMAX = 64      ! max distinct timer keys
+  TYPE :: TIMER_ENTRY_T
+    CHARACTER(LEN=64) :: NAME    = ''
+    REAL(P8)          :: TOTAL   = 0.0D0
+    REAL(P8)          :: T_START = -1.0D0    ! <0 means not running
+    INTEGER           :: COUNT   = 0
+  END TYPE TIMER_ENTRY_T
+  TYPE(TIMER_ENTRY_T), PRIVATE :: TIMER_TABLE(TIMER_NMAX)
+  INTEGER,             PRIVATE :: TIMER_NUSED = 0
+  LOGICAL,             PUBLIC  :: TIMER_ENABLED = .FALSE.
 
 CONTAINS
 !=======================================================================
@@ -2791,5 +2817,166 @@ function local_proc(COMM)
     is_multi_node = (SHM_SIZE .NE. WORLD_SIZE)
     
     END FUNCTION is_multi_node
+!=======================================================================
+!==================== PROFILING TIMER PROCEDURES ======================
+!=======================================================================
+
+SUBROUTINE TIMER_INIT()
+!=======================================================================
+! [USAGE]: Enable the timer and zero all accumulated data.
+!          Must be called once before any TIMER_START/END calls.
+!=======================================================================
+  TIMER_ENABLED = .TRUE.
+  CALL TIMER_RESET()
+END SUBROUTINE TIMER_INIT
+
+!=======================================================================
+SUBROUTINE TIMER_RESET()
+!=======================================================================
+! [USAGE]: Zero all accumulated times and counts, leaving TIMER_ENABLED
+!          unchanged.  Useful to reset between runs in a scaling loop.
+!=======================================================================
+  INTEGER :: I
+  DO I = 1, TIMER_NMAX
+    TIMER_TABLE(I)%NAME    = ''
+    TIMER_TABLE(I)%TOTAL   = 0.0D0
+    TIMER_TABLE(I)%T_START = -1.0D0
+    TIMER_TABLE(I)%COUNT   = 0
+  END DO
+  TIMER_NUSED = 0
+END SUBROUTINE TIMER_RESET
+
+!=======================================================================
+SUBROUTINE TIMER_START(LABEL)
+!=======================================================================
+! [USAGE]: Begin timing the region identified by LABEL.
+!          MPI_BARRIER is called first so all ranks synchronise before
+!          the start timestamp is recorded on rank 0.
+! [PARAMETERS]:
+!   LABEL  (IN) >> Short string identifying the timed region (<=64 chars)
+!=======================================================================
+  IMPLICIT NONE
+  CHARACTER(LEN=*), INTENT(IN) :: LABEL
+  INTEGER :: I, IDX
+
+  IF (.NOT. TIMER_ENABLED) RETURN
+
+  ! Synchronise all ranks so the timestamp reflects true parallel cost
+  CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
+
+  ! Only rank 0 does bookkeeping
+  IF (MPI_RANK .NE. 0) RETURN
+
+  ! Search for an existing entry with this label
+  IDX = 0
+  DO I = 1, TIMER_NUSED
+    IF (TRIM(TIMER_TABLE(I)%NAME) .EQ. TRIM(LABEL)) THEN
+      IDX = I
+      EXIT
+    END IF
+  END DO
+
+  ! Create a new entry if not found
+  IF (IDX .EQ. 0) THEN
+    IF (TIMER_NUSED .GE. TIMER_NMAX) THEN
+      WRITE(*,'(A)') 'TIMER_START: WARNING - too many timer labels, ignoring: '//TRIM(LABEL)
+      RETURN
+    END IF
+    TIMER_NUSED = TIMER_NUSED + 1
+    IDX = TIMER_NUSED
+    TIMER_TABLE(IDX)%NAME = TRIM(LABEL)
+  END IF
+
+  ! Record start time (MPI_WTIME on rank 0 after the barrier)
+  TIMER_TABLE(IDX)%T_START = MPI_WTIME()
+
+END SUBROUTINE TIMER_START
+
+!=======================================================================
+SUBROUTINE TIMER_END(LABEL)
+!=======================================================================
+! [USAGE]: End the region identified by LABEL and accumulate elapsed time.
+!          MPI_BARRIER is called first so the stop timestamp captures the
+!          slowest rank finishing the region.
+! [PARAMETERS]:
+!   LABEL  (IN) >> Must match the LABEL used in the corresponding TIMER_START
+!=======================================================================
+  IMPLICIT NONE
+  CHARACTER(LEN=*), INTENT(IN) :: LABEL
+  REAL(P8) :: T_NOW
+  INTEGER  :: I, IDX
+
+  IF (.NOT. TIMER_ENABLED) RETURN
+
+  ! Synchronise so rank 0 measures the slowest-rank wall time
+  CALL MPI_BARRIER(MPI_COMM_IVP, IERR)
+
+  IF (MPI_RANK .NE. 0) RETURN
+
+  T_NOW = MPI_WTIME()
+
+  IDX = 0
+  DO I = 1, TIMER_NUSED
+    IF (TRIM(TIMER_TABLE(I)%NAME) .EQ. TRIM(LABEL)) THEN
+      IDX = I
+      EXIT
+    END IF
+  END DO
+
+  IF (IDX .EQ. 0) THEN
+    WRITE(*,'(A)') 'TIMER_END: WARNING - no matching TIMER_START for label: '//TRIM(LABEL)
+    RETURN
+  END IF
+
+  IF (TIMER_TABLE(IDX)%T_START .LT. 0.0D0) THEN
+    WRITE(*,'(A)') 'TIMER_END: WARNING - TIMER_START was never called for: '//TRIM(LABEL)
+    RETURN
+  END IF
+
+  TIMER_TABLE(IDX)%TOTAL = TIMER_TABLE(IDX)%TOTAL + (T_NOW - TIMER_TABLE(IDX)%T_START)
+  TIMER_TABLE(IDX)%COUNT = TIMER_TABLE(IDX)%COUNT + 1
+  TIMER_TABLE(IDX)%T_START = -1.0D0  ! mark as stopped
+
+END SUBROUTINE TIMER_END
+
+!=======================================================================
+SUBROUTINE TIMER_REPORT()
+!=======================================================================
+! [USAGE]: Print a formatted table of all named timers to stdout.
+!          Only rank 0 prints. Should be called after the timed loop.
+!=======================================================================
+  IMPLICIT NONE
+  INTEGER  :: I
+  REAL(P8) :: AVG
+
+  IF (.NOT. TIMER_ENABLED) RETURN
+  IF (MPI_RANK .NE. 0) RETURN
+  IF (TIMER_NUSED .EQ. 0) THEN
+    WRITE(*,'(A)') 'TIMER_REPORT: no timer entries recorded.'
+    RETURN
+  END IF
+
+  WRITE(*,'(A)') ''
+  WRITE(*,'(A)') '================================================================'
+  WRITE(*,'(A)') '  PROFILING TIMER REPORT'
+  WRITE(*,'(A)') '----------------------------------------------------------------'
+  WRITE(*,'(A4,1X,A32,1X,A8,1X,A14,1X,A14)') &
+        'IDX', 'LABEL', '  COUNT', '   TOTAL (s)', ' PER-CALL (s)'
+  WRITE(*,'(A)') '----------------------------------------------------------------'
+  DO I = 1, TIMER_NUSED
+    IF (TIMER_TABLE(I)%COUNT .GT. 0) THEN
+      AVG = TIMER_TABLE(I)%TOTAL / REAL(TIMER_TABLE(I)%COUNT, P8)
+    ELSE
+      AVG = 0.0D0
+    END IF
+    WRITE(*,'(I4,1X,A32,1X,I8,1X,F14.6,1X,F14.6)') &
+          I, ADJUSTL(TIMER_TABLE(I)%NAME), &
+          TIMER_TABLE(I)%COUNT, TIMER_TABLE(I)%TOTAL, AVG
+  END DO
+  WRITE(*,'(A)') '================================================================'
+  WRITE(*,'(A)') ''
+
+END SUBROUTINE TIMER_REPORT
+
 !=======================================================================
 END MODULE MOD_FFT
