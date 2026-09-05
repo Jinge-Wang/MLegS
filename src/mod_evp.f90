@@ -1623,6 +1623,11 @@ IF ((MPI_GLB_RANK.EQ.0).OR.(isserial)) THEN  ! START OF THE SERIAL PART
         ELSE
             CALL EIGENDECOMPOSE(H, EIG_VAL)
         END IF
+
+        ! WRITE(*,*) 'EIGVALL:'
+        ! DO I = 1, MIN(10, SIZE(EIG_VAL))
+        !     WRITE(*,'(I4,2X,F12.6,2X,F12.6)') I, REAL(EIG_VAL(I)), AIMAG(EIG_VAL(I))
+        ! END DO
     END IF
 
     IF (PRESENT(print_switch)) THEN

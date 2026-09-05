@@ -13,13 +13,13 @@ SLURM_EMAIL="jinge@berkeley.edu"
 
 # Default parameter values
 BV=0.0 #$(echo "1/0.9" | bc -l)  # Brunt-Väisälä frequency using arithmetic
-OMEGA=-0.6     # Angular velocity
+OMEGA=0.0     # Angular velocity
 NRCHOP=350    # Radial resolution
 M_START=0     # Start value for m
-M_END=1       # End value for m
+M_END=3       # End value for m
 K_START=0.0  # Start value for k
-K_END=5.0     # End value for k
-K_STEP=0.5    # Step size for k
+K_END=10.0     # End value for k
+K_STEP=0.025    # Step size for k
 
 # System detection
 FORCE_LOCAL=false
@@ -121,8 +121,17 @@ else
     echo "Local system detected - using local execution mode"
 fi
 
-# Determine executable name and check if it exists
-EXECUTABLE="./bin/evp_print_exec"
+# Determine executable name based on parameters
+# If both bv and omega are 0, use the original executable
+if [ $(echo "$BV == 0.0" | bc -l) -eq 1 ] && [ $(echo "$OMEGA == 0.0" | bc -l) -eq 1 ]; then
+    EXECUTABLE="./bin/evp_print_org_exec"
+    USE_BV_OMEGA=false
+    echo "Both bv and omega are 0 - using original executable (no stratification/rotation)"
+else
+    EXECUTABLE="./bin/evp_print_exec"
+    USE_BV_OMEGA=true
+    echo "Using Boussinesq executable with bv=$BV, omega=$OMEGA"
+fi
 
 if [ ! -f "$EXECUTABLE" ]; then
     echo "Error: $EXECUTABLE not found"
@@ -145,8 +154,12 @@ mkdir -p data
 echo "==================== Parameter Sweep ======================"
 echo "Execution mode: $([ "$USE_SLURM" = true ] && echo "SLURM" || echo "Local")"
 echo "Executable: $EXECUTABLE"
-echo "Brunt-Väisälä (bv): $BV"
-echo "Angular velocity (w): $OMEGA"
+if [ "$USE_BV_OMEGA" = true ]; then
+    echo "Brunt-Väisälä (bv): $BV"
+    echo "Angular velocity (w): $OMEGA"
+else
+    echo "No stratification/rotation (bv=0, w=0)"
+fi
 echo "Radial resolution (nr): $NRCHOP"
 echo "m range: $M_START to $M_END"
 echo "k range: $K_START to $K_END (step: $K_STEP)"
@@ -161,7 +174,11 @@ run_local() {
     export OMP_NUM_THREADS=3
     
     echo "Running locally with mpirun -np 4..."
-    mpirun -np 4 $EXECUTABLE m=$m k=$k_formatted bv=$BV w=$OMEGA nr=$NRCHOP
+    if [ "$USE_BV_OMEGA" = true ]; then
+        mpirun -np 4 $EXECUTABLE m=$m k=$k_formatted bv=$BV w=$OMEGA nr=$NRCHOP
+    else
+        mpirun -np 4 $EXECUTABLE m=$m k=$k_formatted nr=$NRCHOP
+    fi
     return $?
 }
 
@@ -192,7 +209,11 @@ module load impi
 export OMP_NUM_THREADS=\$SLURM_CPUS_PER_TASK
 
 echo "Starting parameter sweep on SLURM cluster"
-echo "Parameters: BV=$BV, OMEGA=$OMEGA, NRCHOP=$NRCHOP"
+if [ "$USE_BV_OMEGA" = true ]; then
+    echo "Parameters: BV=$BV, OMEGA=$OMEGA, NRCHOP=$NRCHOP"
+else
+    echo "Parameters: NRCHOP=$NRCHOP (no stratification/rotation)"
+fi
 echo "m range: $M_START to $M_END"
 echo "k range: $K_START to $K_END (step: $K_STEP)"
 
@@ -214,11 +235,19 @@ for m in \$(seq $M_START $M_END); do
             skipped_runs=\$((skipped_runs + 1))
         else
             echo "==============================================="
-            echo "Running with m=\$m, k=\$k_formatted, bv=$BV, w=$OMEGA, nr=$NRCHOP"
+            if [ "$USE_BV_OMEGA" = true ]; then
+                echo "Running with m=\$m, k=\$k_formatted, bv=$BV, w=$OMEGA, nr=$NRCHOP"
+            else
+                echo "Running with m=\$m, k=\$k_formatted, nr=$NRCHOP"
+            fi
             echo "==============================================="
             
             # Run the eigenvalue calculation
-            srun --mpi=pmi2 -n \$SLURM_NTASKS $EXECUTABLE m=\$m k=\$k_formatted bv=$BV w=$OMEGA nr=$NRCHOP
+            if [ "$USE_BV_OMEGA" = true ]; then
+                srun --mpi=pmi2 -n \$SLURM_NTASKS $EXECUTABLE m=\$m k=\$k_formatted bv=$BV w=$OMEGA nr=$NRCHOP
+            else
+                srun --mpi=pmi2 -n \$SLURM_NTASKS $EXECUTABLE m=\$m k=\$k_formatted nr=$NRCHOP
+            fi
             
             # Check if the run was successful
             if [ \$? -eq 0 ]; then
@@ -278,7 +307,7 @@ else
         k=$K_START
         while (( $(echo "$k <= $K_END" | bc -l) )); do
             # Format k value for display
-            k_formatted=$(printf "%.2f" $k)
+            k_formatted=$(printf "%.3f" $k)
             
             # Skip the case m=0, k=0
             if [ "$m" -eq "0" ] && [ $(echo "$k == 0.0" | bc -l) -eq 1 ]; then
@@ -286,7 +315,11 @@ else
                 skipped_runs=$((skipped_runs + 1))
             else
                 echo "==============================================="
-                echo "Running with m=$m, k=$k_formatted, bv=$BV, w=$OMEGA, nr=$NRCHOP"
+                if [ "$USE_BV_OMEGA" = true ]; then
+                    echo "Running with m=$m, k=$k_formatted, bv=$BV, w=$OMEGA, nr=$NRCHOP"
+                else
+                    echo "Running with m=$m, k=$k_formatted, nr=$NRCHOP"
+                fi
                 echo "==============================================="
                 
                 # Run the eigenvalue calculation locally

@@ -3,6 +3,7 @@
 /mod/*
 /output/*
 /data/*
+*_archive
 *.o
 *.mod
 *.exe
